@@ -92,21 +92,23 @@ def check_robots(url: str) -> bool:
 
 
 
-# Rotating real browser User-Agents
+import random
+
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
 ]
 
 BLOCKED_DOMAINS = {
-    "amazon": "Amazon blocks automated requests. Try: 1) A specific Amazon product page instead of search, 2) google.com/search?q=best+phone+site:amazon.in, or 3) a price-comparison site like smartprix.com or 91mobiles.com",
-    "linkedin": "LinkedIn blocks automated access. Try: LinkedIn public profiles work better, or use a people-data site.",
-    "instagram": "Instagram requires login and blocks bots. Try a public aggregator instead.",
-    "facebook": "Facebook blocks automated access. Try a public page or news aggregator.",
-    "twitter": "X/Twitter blocks automated access. Try Nitter or a social media aggregator.",
+    "amazon":    "Amazon uses Cloudflare + JS challenges. Try smartprix.com or 91mobiles.com instead.",
+    "linkedin":  "LinkedIn requires login. Try a public profile or people-data aggregator.",
+    "instagram": "Instagram requires login. Try a public aggregator instead.",
+    "facebook":  "Facebook blocks bots. Try a news aggregator instead.",
+    "twitter":   "X/Twitter blocks bots. Try Nitter or a social media aggregator.",
 }
 
 def detect_blocked_domain(url: str) -> str | None:
@@ -117,18 +119,11 @@ def detect_blocked_domain(url: str) -> str | None:
     return None
 
 
-def fetch_page(url: str, delay: float = 1.5):
-    import random
-    time.sleep(delay)
-
-    ua = random.choice(USER_AGENTS)
-    session = requests.Session()
-
-    # Full browser-like headers
-    headers = {
+def _browser_headers(ua: str) -> dict:
+    return {
         "User-Agent": ua,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9,hi;q=0.8",
         "Accept-Encoding": "gzip, deflate, br",
         "DNT": "1",
         "Connection": "keep-alive",
@@ -140,36 +135,131 @@ def fetch_page(url: str, delay: float = 1.5):
         "Cache-Control": "max-age=0",
     }
 
-    # Try with retries
-    last_error = None
+
+def _is_good_response(resp) -> bool:
+    """Return True if response looks like real page content."""
+    if resp.status_code != 200:
+        return False
+    text = resp.text
+    if len(text) < 800:
+        return False
+    # Cloudflare / CAPTCHA detection
+    cf_markers = ["cf-browser-verification", "cf_clearance", "Enable JavaScript",
+                  "DDoS protection", "Ray ID", "captcha", "robot", "unusual traffic"]
+    lower = text.lower()
+    hits = sum(1 for m in cf_markers if m.lower() in lower)
+    if hits >= 2:
+        return False
+    return True
+
+
+def _fetch_direct(url: str, delay: float) -> requests.Response | None:
+    """Strategy 1: Direct request with full browser headers + retries."""
+    time.sleep(delay)
+    session = requests.Session()
     for attempt in range(3):
         try:
-            if attempt > 0:
-                time.sleep(2 + attempt)
-                headers["User-Agent"] = random.choice(USER_AGENTS)
+            ua = random.choice(USER_AGENTS)
+            hdrs = _browser_headers(ua)
+            # First visit homepage to get cookies (mimics real navigation)
+            if attempt == 0:
+                parsed = urlparse(url)
+                home = f"{parsed.scheme}://{parsed.netloc}"
+                try:
+                    session.get(home, headers=hdrs, timeout=10, allow_redirects=True)
+                    time.sleep(0.8)
+                except Exception:
+                    pass
+            resp = session.get(url, headers=hdrs, timeout=25, allow_redirects=True)
+            if _is_good_response(resp):
+                return resp
+            if resp.status_code in [404, 410]:
+                return None  # No point retrying
+        except Exception:
+            pass
+        time.sleep(1.5 * (attempt + 1))
+    return None
 
-            resp = session.get(url, headers=headers, timeout=25, allow_redirects=True)
 
-            # If we get a bot-detection page, raise explicitly
-            if resp.status_code in [403, 503, 429]:
-                raise requests.HTTPError(
-                    f"{resp.status_code} — Site returned bot-detection response",
-                    response=resp
-                )
-            if resp.status_code == 200 and len(resp.text) < 500:
-                raise requests.HTTPError("Page returned but content is too short — likely a CAPTCHA or block page", response=resp)
-
-            resp.raise_for_status()
+def _fetch_google_cache(url: str) -> requests.Response | None:
+    """Strategy 2: Google Cache — works for many blocked sites."""
+    cache_url = f"https://webcache.googleusercontent.com/search?q=cache:{url}&hl=en"
+    try:
+        ua = random.choice(USER_AGENTS)
+        resp = requests.get(cache_url, headers=_browser_headers(ua), timeout=20)
+        if _is_good_response(resp):
             return resp
+    except Exception:
+        pass
+    return None
 
-        except requests.HTTPError as e:
-            last_error = e
-            continue
-        except Exception as e:
-            last_error = e
-            continue
 
-    raise last_error or Exception("All fetch attempts failed")
+def _fetch_wayback(url: str) -> requests.Response | None:
+    """Strategy 3: Wayback Machine latest snapshot."""
+    try:
+        api = f"http://archive.org/wayback/available?url={url}"
+        meta = requests.get(api, timeout=10).json()
+        snapshot = meta.get("archived_snapshots", {}).get("closest", {})
+        snap_url = snapshot.get("url")
+        if not snap_url:
+            return None
+        ua = random.choice(USER_AGENTS)
+        resp = requests.get(snap_url, headers=_browser_headers(ua), timeout=25)
+        if _is_good_response(resp):
+            return resp
+    except Exception:
+        pass
+    return None
+
+
+def _fetch_scraperapi(url: str, api_key: str) -> requests.Response | None:
+    """Strategy 4: ScraperAPI proxy (requires free API key in secrets)."""
+    try:
+        proxy_url = f"http://api.scraperapi.com?api_key={api_key}&url={url}&render=false"
+        ua = random.choice(USER_AGENTS)
+        resp = requests.get(proxy_url, headers=_browser_headers(ua), timeout=60)
+        if _is_good_response(resp):
+            return resp
+    except Exception:
+        pass
+    return None
+
+
+def fetch_page(url: str, delay: float = 1.5) -> tuple[requests.Response, str]:
+    """
+    Try multiple strategies in order. Returns (response, strategy_used).
+    Raises Exception if all strategies fail.
+    """
+    # Strategy 1 — Direct
+    resp = _fetch_direct(url, delay)
+    if resp:
+        return resp, "direct"
+
+    # Strategy 2 — Google Cache
+    resp = _fetch_google_cache(url)
+    if resp:
+        return resp, "google_cache"
+
+    # Strategy 3 — Wayback Machine
+    resp = _fetch_wayback(url)
+    if resp:
+        return resp, "wayback"
+
+    # Strategy 4 — ScraperAPI (only if key configured)
+    scraper_key = ""
+    try:
+        scraper_key = st.secrets.get("SCRAPERAPI_KEY", "")
+    except Exception:
+        pass
+    if scraper_key:
+        resp = _fetch_scraperapi(url, scraper_key)
+        if resp:
+            return resp, "scraperapi"
+
+    raise Exception(
+        "All fetch strategies failed (direct · Google Cache · Wayback Machine). "
+        "The site has very strong bot protection."
+    )
 
 
 
@@ -489,33 +579,29 @@ if extract_btn and url_input:
         # 2 fetch
         st.write("🌐 Fetching page...")
 
-        # Pre-check for known blocked domains
+        # Pre-check for known completely-blocked domains
         block_msg = detect_blocked_domain(url_input)
         if block_msg:
-            st.error(f"🚫 **This site actively blocks scrapers.**\n\n{block_msg}")
-            st.info("💡 Works best on open sites: Wikipedia, news, blogs, 91mobiles, SmartPrix, Flipkart, gov portals.")
-            status.update(label="❌ Site blocks automated access", state="error")
+            st.error(f"🚫 **Blocked domain:** {block_msg}")
+            status.update(label="❌ Site blocks all scrapers", state="error")
             st.stop()
 
         try:
-            resp = fetch_page(url_input, delay=rate_delay)
-        except requests.HTTPError as e:
-            code = e.response.status_code if e.response is not None else "?"
-            tips = {
-                403: "The site returned **403 Forbidden** — it's blocking our request. Try a different page on the same site, or a site without anti-bot protection.",
-                429: "The site returned **429 Too Many Requests** — increase the request delay in the sidebar and try again.",
-                503: "The site returned **503 Service Unavailable** — it detected automated access. Try a simpler/open version of this URL.",
-                404: "The page was **not found (404)**. Check the URL is correct.",
+            resp, strategy = fetch_page(url_input, delay=rate_delay)
+            strategy_labels = {
+                "direct":       "✅ Fetched directly",
+                "google_cache": "✅ Fetched via Google Cache",
+                "wayback":      "✅ Fetched via Wayback Machine (archived copy)",
+                "scraperapi":   "✅ Fetched via ScraperAPI proxy",
             }
-            friendly = tips.get(code, f"HTTP {code} error.")
-            st.error(f"❌ {friendly}")
-            st.info("💡 Works best on: Wikipedia · news sites · blogs · 91mobiles · SmartPrix · Flipkart")
-            status.update(label=f"❌ Fetch failed ({code})", state="error")
-            st.stop()
+            st.write(strategy_labels.get(strategy, "✅ Fetched"))
+            if strategy in ("google_cache", "wayback"):
+                st.info(f"ℹ️ Direct access was blocked — using {'Google Cache' if strategy=='google_cache' else 'Wayback Machine'} snapshot. Data may be slightly outdated.")
+
         except Exception as e:
-            st.error(f"❌ Fetch failed: {e}")
-            st.info("💡 Check your internet connection or try a different URL.")
-            status.update(label="❌ Fetch failed", state="error")
+            st.error(f"❌ {e}")
+            st.info("💡 Try: Wikipedia · news sites · books.toscrape.com · quotes.toscrape.com · SmartPrix · any open site without Cloudflare.")
+            status.update(label="❌ All fetch strategies failed", state="error")
             st.stop()
 
         soup = BeautifulSoup(resp.text, "html.parser")
