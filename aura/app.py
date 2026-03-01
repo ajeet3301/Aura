@@ -91,12 +91,86 @@ def check_robots(url: str) -> bool:
         return True
 
 
+
+# Rotating real browser User-Agents
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+]
+
+BLOCKED_DOMAINS = {
+    "amazon": "Amazon blocks automated requests. Try: 1) A specific Amazon product page instead of search, 2) google.com/search?q=best+phone+site:amazon.in, or 3) a price-comparison site like smartprix.com or 91mobiles.com",
+    "linkedin": "LinkedIn blocks automated access. Try: LinkedIn public profiles work better, or use a people-data site.",
+    "instagram": "Instagram requires login and blocks bots. Try a public aggregator instead.",
+    "facebook": "Facebook blocks automated access. Try a public page or news aggregator.",
+    "twitter": "X/Twitter blocks automated access. Try Nitter or a social media aggregator.",
+}
+
+def detect_blocked_domain(url: str) -> str | None:
+    host = urlparse(url).netloc.lower()
+    for domain, msg in BLOCKED_DOMAINS.items():
+        if domain in host:
+            return msg
+    return None
+
+
 def fetch_page(url: str, delay: float = 1.5):
+    import random
     time.sleep(delay)
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; AURA-Bot/1.0)"}
-    resp = requests.get(url, headers=headers, timeout=20)
-    resp.raise_for_status()
-    return resp
+
+    ua = random.choice(USER_AGENTS)
+    session = requests.Session()
+
+    # Full browser-like headers
+    headers = {
+        "User-Agent": ua,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "DNT": "1",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Cache-Control": "max-age=0",
+    }
+
+    # Try with retries
+    last_error = None
+    for attempt in range(3):
+        try:
+            if attempt > 0:
+                time.sleep(2 + attempt)
+                headers["User-Agent"] = random.choice(USER_AGENTS)
+
+            resp = session.get(url, headers=headers, timeout=25, allow_redirects=True)
+
+            # If we get a bot-detection page, raise explicitly
+            if resp.status_code in [403, 503, 429]:
+                raise requests.HTTPError(
+                    f"{resp.status_code} — Site returned bot-detection response",
+                    response=resp
+                )
+            if resp.status_code == 200 and len(resp.text) < 500:
+                raise requests.HTTPError("Page returned but content is too short — likely a CAPTCHA or block page", response=resp)
+
+            resp.raise_for_status()
+            return resp
+
+        except requests.HTTPError as e:
+            last_error = e
+            continue
+        except Exception as e:
+            last_error = e
+            continue
+
+    raise last_error or Exception("All fetch attempts failed")
+
 
 
 def resolve_img(src: str, base_url: str) -> str:
@@ -418,10 +492,33 @@ if extract_btn and url_input:
 
         # 2 fetch
         st.write("🌐 Fetching page...")
+
+        # Pre-check for known blocked domains
+        block_msg = detect_blocked_domain(url_input)
+        if block_msg:
+            st.error(f"🚫 **This site actively blocks scrapers.**\n\n{block_msg}")
+            st.info("💡 **Tip:** AURA works great on open sites like Wikipedia, news sites, blogs, e-commerce sites without heavy bot protection, government data portals, and most product directories.")
+            status.update(label="❌ Site blocks automated access", state="error")
+            st.stop()
+
         try:
             resp = fetch_page(url_input, delay=rate_delay)
+        except requests.HTTPError as e:
+            code = e.response.status_code if e.response is not None else "?"
+            tips = {
+                403: "The site returned **403 Forbidden** — it's blocking our request. Try a different page on the same site, or a site without anti-bot protection.",
+                429: "The site returned **429 Too Many Requests** — increase the request delay in the sidebar and try again.",
+                503: "The site returned **503 Service Unavailable** — it detected automated access. Try a simpler/open version of this URL.",
+                404: "The page was **not found (404)**. Check the URL is correct.",
+            }
+            friendly = tips.get(code, f"HTTP {code} error.")
+            st.error(f"❌ {friendly}")
+            st.info("💡 **AURA works best on:** Wikipedia · News sites · Blogs · Open product directories · Gov data sites · 91mobiles · SmartPrix · Flipkart (many pages) · Any site without heavy bot protection.")
+            status.update(label=f"❌ Fetch failed ({code})", state="error")
+            st.stop()
         except Exception as e:
-            st.error(f"Fetch failed: {e}")
+            st.error(f"❌ Fetch failed: {e}")
+            st.info("💡 Check your internet connection or try a different URL.")
             status.update(label="❌ Fetch failed", state="error")
             st.stop()
 
@@ -841,3 +938,36 @@ elif not extract_btn:
     for col, (icon, title, desc) in zip(cols, tiles):
         with col:
             st.markdown(f'<div class="glass-card" style="text-align:center;height:100%;"><div style="font-size:2.2rem;margin-bottom:.5rem;">{icon}</div><div style="font-family:Poppins,sans-serif;font-weight:700;margin-bottom:.4rem;">{title}</div><div style="color:#9aa4c7;font-size:.8rem;line-height:1.5;">{desc}</div></div>', unsafe_allow_html=True)
+
+    st.markdown('<hr class="aura-divider">', unsafe_allow_html=True)
+    st.markdown("#### 💡 Try These URLs")
+
+    example_urls = [
+        ("🛒 Products", "https://books.toscrape.com/", "Open book store — great for product cards"),
+        ("📰 News", "https://news.ycombinator.com/", "Hacker News — links, titles, scores"),
+        ("🌍 Wikipedia", "https://en.wikipedia.org/wiki/List_of_largest_companies_by_revenue", "Tables with rich data"),
+        ("📱 Tech Prices", "https://www.91mobiles.com/mobile-phones-under-20000", "Indian phone listings"),
+        ("💼 Jobs", "https://jobs.github.com/", "Dev job listings"),
+        ("🏠 Real Estate", "https://www.magicbricks.com/property-for-sale/residential-real-estate?proptype=Multistorey-Apartment&cityName=Noida", "Property cards"),
+    ]
+
+    ec1, ec2, ec3 = st.columns(3)
+    for i, (icon, url, desc) in enumerate(example_urls):
+        col = [ec1, ec2, ec3][i % 3]
+        with col:
+            st.markdown(f"""
+<div class="glass-card" style="padding:1rem;">
+  <div style="font-size:.9rem;font-weight:600;margin-bottom:.3rem;">{icon} {desc}</div>
+  <div style="font-size:.72rem;color:#7c9cff;word-break:break-all;">{url}</div>
+</div>""", unsafe_allow_html=True)
+
+    st.markdown("""
+<div class="glass-card" style="border-left:3px solid #febc2e;padding:1rem 1.4rem;margin-top:.5rem;">
+  <div style="font-weight:600;margin-bottom:.3rem;">⚠️ Sites that block scrapers (won't work)</div>
+  <div style="color:#9aa4c7;font-size:.82rem;">
+    <b>Amazon</b> · <b>LinkedIn</b> · <b>Instagram</b> · <b>Facebook</b> · <b>Twitter/X</b> — these use advanced bot detection (Cloudflare, CAPTCHA, JavaScript challenges).
+    For Amazon, try <a href="https://www.91mobiles.com" target="_blank" style="color:#7c9cff;">91mobiles.com</a> or 
+    <a href="https://www.smartprix.com" target="_blank" style="color:#7c9cff;">smartprix.com</a> instead.
+  </div>
+</div>
+""", unsafe_allow_html=True)
