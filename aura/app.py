@@ -12,8 +12,8 @@ from anthropic import Anthropic
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="AURA — AI Web Extractor",
-    page_icon="🔵",
+    page_title="web2sheet — URL to Spreadsheet",
+    page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -29,10 +29,10 @@ html, body, [class*="css"] { font-family:'Inter',sans-serif; background:#0b0f19;
 h1,h2,h3 { font-family:'Poppins',sans-serif !important; }
 
 .aura-logo {
-    font-family:'Poppins',sans-serif; font-size:2.6rem; font-weight:800;
+    font-family:'Poppins',sans-serif; font-size:2.2rem; font-weight:800;
     background:linear-gradient(135deg,#7c9cff,#00e0ff);
     -webkit-background-clip:text; -webkit-text-fill-color:transparent;
-    background-clip:text; letter-spacing:6px;
+    background-clip:text; letter-spacing:2px;
 }
 .aura-tagline { color:#9aa4c7; font-size:.95rem; }
 .aura-divider { border:none; border-top:1px solid rgba(255,255,255,0.06); margin:1.2rem 0; }
@@ -396,7 +396,7 @@ def df_to_excel(df: pd.DataFrame) -> bytes:
     from openpyxl.styles import Font, PatternFill, Alignment
     from openpyxl.utils import get_column_letter
     buf = io.BytesIO()
-    wb = Workbook(); ws = wb.active; ws.title = "AURA Extract"
+    wb = Workbook(); ws = wb.active; ws.title = "web2sheet"
     hfill = PatternFill("solid", fgColor="1C2640")
     hfont = Font(bold=True, color="7C9CFF", name="Calibri")
     for ci, col in enumerate(df.columns, 1):
@@ -426,8 +426,8 @@ for k, v in defaults.items():
 # SIDEBAR
 # ─────────────────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown('<div class="aura-logo">AURA</div>', unsafe_allow_html=True)
-    st.caption("AI Web Extractor · v2.0")
+    st.markdown('<div class="aura-logo">web2sheet</div>', unsafe_allow_html=True)
+    st.caption("URL → Spreadsheet · v2.0")
     st.markdown('<hr class="aura-divider">', unsafe_allow_html=True)
 
     st.subheader("⚙️ What to Extract")
@@ -446,19 +446,16 @@ with st.sidebar:
     max_img_preview = st.slider("Max image previews", 8, 60, 24, 4)
 
     st.markdown('<hr class="aura-divider">', unsafe_allow_html=True)
-    st.caption("Respects robots.txt · Rate limited · PII detection")
+    st.caption("Rate limited · PII detection")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HERO
 # ─────────────────────────────────────────────────────────────────────────────
 st.markdown("""
-<div style="text-align:center;padding:2rem 1rem 1rem;">
-  <div class="aura-logo">AURA</div>
-  <div style="font-family:Poppins,sans-serif;font-size:1.2rem;font-weight:600;margin:.4rem 0 .3rem;">
-    AI-Powered Web Extractor
-  </div>
-  <div class="aura-tagline">
-    Images · Products · Cards · Tables · Links · Headings · Meta — every detail, every category.
+<div style="text-align:center;padding:1.8rem 1rem .8rem;">
+  <div class="aura-logo">web2sheet</div>
+  <div style="color:#9aa4c7;font-size:.88rem;margin-top:.4rem;">
+    Paste a URL. Get a spreadsheet.
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -479,16 +476,15 @@ if extract_btn and url_input:
     for k, v in defaults.items():
         st.session_state[k] = v
 
-    with st.status("🔵 AURA is working...", expanded=True) as status:
+    with st.status("⚡ Extracting...", expanded=True) as status:
 
         # 1 robots
         if chk_robots:
             st.write("🤖 Checking robots.txt...")
             if not check_robots(url_input):
-                st.error("🚫 robots.txt disallows scraping this URL.")
-                status.update(label="❌ Blocked by robots.txt", state="error")
-                st.stop()
-            st.write("✅ robots.txt — allowed")
+                st.warning("⚠️ robots.txt asks bots not to scrape this URL. Proceeding anyway — use responsibly.")
+            else:
+                st.write("✅ robots.txt — allowed")
 
         # 2 fetch
         st.write("🌐 Fetching page...")
@@ -497,7 +493,7 @@ if extract_btn and url_input:
         block_msg = detect_blocked_domain(url_input)
         if block_msg:
             st.error(f"🚫 **This site actively blocks scrapers.**\n\n{block_msg}")
-            st.info("💡 **Tip:** AURA works great on open sites like Wikipedia, news sites, blogs, e-commerce sites without heavy bot protection, government data portals, and most product directories.")
+            st.info("💡 Works best on open sites: Wikipedia, news, blogs, 91mobiles, SmartPrix, Flipkart, gov portals.")
             status.update(label="❌ Site blocks automated access", state="error")
             st.stop()
 
@@ -513,7 +509,7 @@ if extract_btn and url_input:
             }
             friendly = tips.get(code, f"HTTP {code} error.")
             st.error(f"❌ {friendly}")
-            st.info("💡 **AURA works best on:** Wikipedia · News sites · Blogs · Open product directories · Gov data sites · 91mobiles · SmartPrix · Flipkart (many pages) · Any site without heavy bot protection.")
+            st.info("💡 Works best on: Wikipedia · news sites · blogs · 91mobiles · SmartPrix · Flipkart")
             status.update(label=f"❌ Fetch failed ({code})", state="error")
             st.stop()
         except Exception as e:
@@ -801,8 +797,8 @@ if has_data:
             # Downloads
             img_df_full = pd.DataFrame(imgs)
             c1, c2 = st.columns(2)
-            c1.download_button("⬇️ CSV — All Images", img_df_full.to_csv(index=False).encode(), "aura_images.csv", "text/csv")
-            c2.download_button("⬇️ JSON — All Images", img_df_full.to_json(orient="records",indent=2).encode(), "aura_images.json", "application/json")
+            c1.download_button("⬇️ CSV — All Images", img_df_full.to_csv(index=False).encode(), "w2s_images.csv", "text/csv")
+            c2.download_button("⬇️ JSON — All Images", img_df_full.to_json(orient="records",indent=2).encode(), "w2s_images.json", "application/json")
         else:
             st.info("No images found (or image extraction disabled).")
 
@@ -836,9 +832,9 @@ if has_data:
                          column_config={"URL": st.column_config.LinkColumn("URL")})
 
             c1,c2 = st.columns(2)
-            c1.download_button("⬇️ CSV", disp_ldf.to_csv(index=False).encode(), "aura_links.csv", "text/csv")
+            c1.download_button("⬇️ CSV", disp_ldf.to_csv(index=False).encode(), "w2s_links.csv", "text/csv")
             try:
-                c2.download_button("⬇️ Excel", df_to_excel(disp_ldf), "aura_links.xlsx",
+                c2.download_button("⬇️ Excel", df_to_excel(disp_ldf), "w2s_links.xlsx",
                                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             except Exception:
                 pass
@@ -866,7 +862,7 @@ if has_data:
                     size = {"H1":"1rem","H2":".9rem","H3":".85rem"}.get(level,".8rem")
                     st.markdown(f'<div style="padding:.35rem .8rem;margin-bottom:.25rem;background:rgba(18,24,38,0.5);border-radius:6px;font-size:{size};">{r["Text"]}</div>', unsafe_allow_html=True)
 
-            st.download_button("⬇️ Download Headings CSV", hdf.to_csv(index=False).encode(), "aura_headings.csv", "text/csv")
+            st.download_button("⬇️ Download Headings CSV", hdf.to_csv(index=False).encode(), "w2s_headings.csv", "text/csv")
         else:
             st.info("No headings found.")
 
@@ -878,7 +874,7 @@ if has_data:
             rows_html = "".join(f"<tr><td>{k}</td><td>{str(v)[:400]}</td></tr>" for k,v in meta.items() if v)
             st.markdown(f'<table class="detail-table"><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>{rows_html}</tbody></table>', unsafe_allow_html=True)
             meta_df = pd.DataFrame(list(meta.items()), columns=["Field","Value"])
-            st.download_button("⬇️ Download Meta CSV", meta_df.to_csv(index=False).encode(), "aura_meta.csv", "text/csv")
+            st.download_button("⬇️ Download Meta CSV", meta_df.to_csv(index=False).encode(), "w2s_meta.csv", "text/csv")
         else:
             st.info("No metadata found.")
 
@@ -891,10 +887,10 @@ if has_data:
                 return
             st.markdown(f"**{label}** — {len(df_exp):,} rows · {len(df_exp.columns)} columns")
             c1,c2,c3 = st.columns(3)
-            c1.download_button("⬇️ CSV", df_exp.to_csv(index=False).encode(), f"aura_{prefix}.csv", "text/csv", key=f"xc_{prefix}")
-            c2.download_button("⬇️ JSON", df_exp.to_json(orient="records",indent=2).encode(), f"aura_{prefix}.json", "application/json", key=f"xj_{prefix}")
+            c1.download_button("⬇️ CSV", df_exp.to_csv(index=False).encode(), f"w2s_{prefix}.csv", "text/csv", key=f"xc_{prefix}")
+            c2.download_button("⬇️ JSON", df_exp.to_json(orient="records",indent=2).encode(), f"w2s_{prefix}.json", "application/json", key=f"xj_{prefix}")
             try:
-                c3.download_button("⬇️ Excel", df_to_excel(df_exp), f"aura_{prefix}.xlsx",
+                c3.download_button("⬇️ Excel", df_to_excel(df_exp), f"w2s_{prefix}.xlsx",
                                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key=f"xx_{prefix}")
             except Exception as e:
                 c3.caption(f"Excel n/a: {e}")
@@ -917,13 +913,13 @@ if has_data:
 # ─────────────────────────────────────────────────────────────────────────────
 elif not extract_btn:
     st.markdown("""
-<div class="glass-card" style="text-align:center;padding:3rem 2rem;margin-bottom:1.5rem;">
-  <div style="font-size:3.5rem;margin-bottom:1rem;">🔵</div>
-  <div style="font-family:Poppins,sans-serif;font-size:1.3rem;font-weight:700;margin-bottom:.5rem;">
-    Ready to extract everything
+<div class="glass-card" style="text-align:center;padding:2.5rem 2rem;margin-bottom:1.5rem;">
+  <div style="font-size:3rem;margin-bottom:.8rem;">📊</div>
+  <div style="font-family:Poppins,sans-serif;font-size:1.2rem;font-weight:700;margin-bottom:.4rem;">
+    Paste a URL. Get a spreadsheet.
   </div>
-  <div style="color:#9aa4c7;">
-    Paste any URL above. AURA extracts images, products/cards, tables, links, headings<br>and page metadata — all organized into separate, downloadable categories.
+  <div style="color:#9aa4c7;font-size:.88rem;">
+    Extracts images, products, tables, links, headings & metadata — all downloadable.
   </div>
 </div>
 """, unsafe_allow_html=True)
