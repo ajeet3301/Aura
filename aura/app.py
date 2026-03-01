@@ -1,717 +1,600 @@
+"""
+web2sheet — URL to Spreadsheet
+Fetch strategy: ScraperAPI (primary) → Direct (fallback) → AI Extract (last resort)
+"""
+
 import streamlit as st
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-import re
-import time
-import json
-import io
-from urllib.robotparser import RobotFileParser
+import re, time, json, io, random
 from urllib.parse import urljoin, urlparse
 from anthropic import Anthropic
 
-# ── Page config ───────────────────────────────────────────────────────────────
+# ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="web2sheet — URL to Spreadsheet",
+    page_title="web2sheet",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ── CSS ───────────────────────────────────────────────────────────────────────
+# ── CSS ────────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700;800&family=Inter:wght@300;400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&family=Inter:wght@300;400;500&display=swap');
 
-html, body, [class*="css"] { font-family:'Inter',sans-serif; background:#0b0f19; color:#e6ecff; }
-#MainMenu, footer, header { visibility:hidden; }
-.block-container { padding-top:1.5rem; max-width:1280px; }
-h1,h2,h3 { font-family:'Poppins',sans-serif !important; }
+html,body,[class*="css"]{font-family:'Inter',sans-serif;background:#0b0f19;color:#e6ecff;}
+#MainMenu,footer,header{visibility:hidden;}
+.block-container{padding-top:1.5rem;max-width:1280px;}
+h1,h2,h3{font-family:'Poppins',sans-serif !important;}
 
-.aura-logo {
-    font-family:'Poppins',sans-serif; font-size:2.2rem; font-weight:800;
-    background:linear-gradient(135deg,#7c9cff,#00e0ff);
-    -webkit-background-clip:text; -webkit-text-fill-color:transparent;
-    background-clip:text; letter-spacing:2px;
-}
-.aura-tagline { color:#9aa4c7; font-size:.95rem; }
-.aura-divider { border:none; border-top:1px solid rgba(255,255,255,0.06); margin:1.2rem 0; }
+.logo{font-family:'Poppins',sans-serif;font-size:2.4rem;font-weight:800;
+  background:linear-gradient(135deg,#7c9cff,#00e0ff);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;letter-spacing:2px;}
 
-.glass-card {
-    background:rgba(18,24,38,0.75); border:1px solid rgba(255,255,255,0.08);
-    border-radius:14px; padding:1.4rem; margin-bottom:.8rem;
-}
-.product-card {
-    background:rgba(18,24,38,0.85); border:1px solid rgba(255,255,255,0.08);
-    border-radius:16px; overflow:hidden; margin-bottom:1rem;
-}
-.product-body { padding:1rem; }
-.product-title { font-family:'Poppins',sans-serif; font-weight:600; font-size:.92rem; margin-bottom:.4rem; color:#e6ecff; }
-.product-price { color:#28c840; font-weight:700; font-size:1.05rem; margin-bottom:.3rem; }
-.product-rating { color:#febc2e; font-size:.82rem; margin-bottom:.3rem; }
-.product-desc { color:#9aa4c7; font-size:.78rem; line-height:1.5; margin-bottom:.4rem; }
+.divider{border:none;border-top:1px solid rgba(255,255,255,0.06);margin:1rem 0;}
 
-.cat-pill {
-    display:inline-block; padding:2px 9px;
-    background:rgba(0,224,255,0.08); border:1px solid rgba(0,224,255,0.2);
-    border-radius:20px; font-size:.7rem; color:#00e0ff; margin-right:4px; margin-bottom:4px;
-}
+.glass{background:rgba(18,24,38,0.75);border:1px solid rgba(255,255,255,0.08);
+  border-radius:14px;padding:1.4rem;margin-bottom:.8rem;}
 
-.detail-table { width:100%; border-collapse:collapse; font-size:.85rem; }
-.detail-table th { background:rgba(124,156,255,0.08); color:#7c9cff; padding:8px 12px; text-align:left; border-bottom:1px solid rgba(255,255,255,0.06); font-weight:500; }
-.detail-table td { padding:8px 12px; border-bottom:1px solid rgba(255,255,255,0.04); color:#9aa4c7; vertical-align:top; }
-.detail-table tr:hover td { background:rgba(124,156,255,0.04); color:#e6ecff; }
-.detail-table td:first-child { font-weight:500; color:#e6ecff; width:28%; }
+.pcard{background:rgba(18,24,38,0.85);border:1px solid rgba(255,255,255,0.08);
+  border-radius:16px;overflow:hidden;margin-bottom:.8rem;}
+.pbody{padding:.9rem;}
+.ptitle{font-family:'Poppins',sans-serif;font-weight:600;font-size:.9rem;margin-bottom:.35rem;color:#e6ecff;}
+.pprice{color:#28c840;font-weight:700;font-size:1rem;margin-bottom:.25rem;}
+.prating{color:#febc2e;font-size:.8rem;margin-bottom:.25rem;}
+.pdesc{color:#9aa4c7;font-size:.76rem;line-height:1.5;margin-bottom:.35rem;}
 
-.stat-box { background:rgba(18,24,38,0.8); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:1rem; text-align:center; }
-.stat-num { font-family:'Poppins',sans-serif; font-size:1.8rem; font-weight:700; color:#7c9cff; }
-.stat-label { font-size:.73rem; color:#9aa4c7; margin-top:2px; }
+.pill{display:inline-block;padding:2px 8px;background:rgba(0,224,255,0.08);
+  border:1px solid rgba(0,224,255,0.2);border-radius:20px;font-size:.68rem;color:#00e0ff;margin:2px;}
 
-.cat-header { display:flex; align-items:center; gap:12px; padding:.7rem 1rem; background:rgba(18,24,38,0.6); border:1px solid rgba(255,255,255,0.07); border-radius:10px; margin-bottom:.8rem; }
-.cat-count { font-size:.78rem; color:#9aa4c7; margin-left:auto; }
+.dtable{width:100%;border-collapse:collapse;font-size:.83rem;}
+.dtable th{background:rgba(124,156,255,0.08);color:#7c9cff;padding:8px 12px;text-align:left;
+  border-bottom:1px solid rgba(255,255,255,0.06);font-weight:500;}
+.dtable td{padding:7px 12px;border-bottom:1px solid rgba(255,255,255,0.04);color:#9aa4c7;vertical-align:top;}
+.dtable tr:hover td{background:rgba(124,156,255,0.04);color:#e6ecff;}
+.dtable td:first-child{font-weight:500;color:#e6ecff;width:28%;}
 
-.img-thumb { width:100%; height:140px; object-fit:cover; border-radius:8px; border:1px solid rgba(255,255,255,0.06); display:block; }
+.sbox{background:rgba(18,24,38,0.8);border:1px solid rgba(255,255,255,0.08);
+  border-radius:12px;padding:1rem;text-align:center;}
+.snum{font-family:'Poppins',sans-serif;font-size:1.8rem;font-weight:700;color:#7c9cff;}
+.slbl{font-size:.72rem;color:#9aa4c7;margin-top:2px;}
 
-section[data-testid="stSidebar"] { background:#121826; border-right:1px solid rgba(255,255,255,0.06); }
+.cheader{display:flex;align-items:center;gap:10px;padding:.6rem 1rem;
+  background:rgba(18,24,38,0.6);border:1px solid rgba(255,255,255,0.07);
+  border-radius:10px;margin-bottom:.7rem;}
+.ccount{font-size:.76rem;color:#9aa4c7;margin-left:auto;}
+
+.key-banner{background:rgba(124,156,255,0.07);border:1px solid rgba(124,156,255,0.2);
+  border-radius:12px;padding:1rem 1.2rem;margin-bottom:1rem;}
+
+section[data-testid="stSidebar"]{background:#121826;border-right:1px solid rgba(255,255,255,0.06);}
 </style>
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HELPERS
+# CONSTANTS
 # ─────────────────────────────────────────────────────────────────────────────
-
-def check_robots(url: str) -> bool:
-    try:
-        p = urlparse(url)
-        rp = RobotFileParser()
-        rp.set_url(f"{p.scheme}://{p.netloc}/robots.txt")
-        rp.read()
-        return rp.can_fetch("*", url)
-    except Exception:
-        return True
-
-
-
-import random
-
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
 ]
 
-BLOCKED_DOMAINS = {
-    "amazon":    "Amazon uses Cloudflare + JS challenges. Try smartprix.com or 91mobiles.com instead.",
-    "linkedin":  "LinkedIn requires login. Try a public profile or people-data aggregator.",
-    "instagram": "Instagram requires login. Try a public aggregator instead.",
-    "facebook":  "Facebook blocks bots. Try a news aggregator instead.",
-    "twitter":   "X/Twitter blocks bots. Try Nitter or a social media aggregator.",
-}
-
-def detect_blocked_domain(url: str) -> str | None:
-    host = urlparse(url).netloc.lower()
-    for domain, msg in BLOCKED_DOMAINS.items():
-        if domain in host:
-            return msg
-    return None
-
-
-def _browser_headers(ua: str) -> dict:
+def _hdrs(ua=None):
     return {
-        "User-Agent": ua,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9,hi;q=0.8",
+        "User-Agent": ua or random.choice(USER_AGENTS),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
         "Accept-Encoding": "gzip, deflate, br",
-        "DNT": "1",
         "Connection": "keep-alive",
         "Upgrade-Insecure-Requests": "1",
         "Sec-Fetch-Dest": "document",
         "Sec-Fetch-Mode": "navigate",
         "Sec-Fetch-Site": "none",
         "Sec-Fetch-User": "?1",
-        "Cache-Control": "max-age=0",
     }
 
+def _is_real_page(resp) -> bool:
+    if resp.status_code != 200: return False
+    t = resp.text
+    if len(t) < 500: return False
+    bad = ["cf-browser-verification","just a moment","enable javascript and cookies",
+           "ddos protection","are you a robot","captcha","access denied","403 forbidden"]
+    low = t.lower()
+    return sum(1 for b in bad if b in low) < 2
 
-def _is_good_response(resp) -> bool:
-    """Return True if response looks like real page content."""
-    if resp.status_code != 200:
-        return False
-    text = resp.text
-    if len(text) < 800:
-        return False
-    # Cloudflare / CAPTCHA detection
-    cf_markers = ["cf-browser-verification", "cf_clearance", "Enable JavaScript",
-                  "DDoS protection", "Ray ID", "captcha", "robot", "unusual traffic"]
-    lower = text.lower()
-    hits = sum(1 for m in cf_markers if m.lower() in lower)
-    if hits >= 2:
-        return False
-    return True
+# ─────────────────────────────────────────────────────────────────────────────
+# FETCH STRATEGIES
+# ─────────────────────────────────────────────────────────────────────────────
+
+def fetch_via_scraperapi(url: str, key: str) -> str | None:
+    """ScraperAPI — handles JS rendering, rotating proxies, anti-bot bypass."""
+    try:
+        endpoint = "https://api.scraperapi.com/"
+        params = {"api_key": key, "url": url, "render": "false", "country_code": "in"}
+        r = requests.get(endpoint, params=params, timeout=60)
+        if r.status_code == 200 and len(r.text) > 500:
+            return r.text
+    except Exception:
+        pass
+    return None
 
 
-def _fetch_direct(url: str, delay: float) -> requests.Response | None:
-    """Strategy 1: Direct request with full browser headers + retries."""
+def fetch_direct(url: str, delay=1.0) -> str | None:
+    """Direct request with browser headers + homepage cookie priming."""
     time.sleep(delay)
-    session = requests.Session()
-    for attempt in range(3):
+    s = requests.Session()
+    ua = random.choice(USER_AGENTS)
+    try:
+        parsed = urlparse(url)
+        s.get(f"{parsed.scheme}://{parsed.netloc}", headers=_hdrs(ua), timeout=8)
+        time.sleep(0.5)
+    except Exception:
+        pass
+    for _ in range(2):
         try:
-            ua = random.choice(USER_AGENTS)
-            hdrs = _browser_headers(ua)
-            # First visit homepage to get cookies (mimics real navigation)
-            if attempt == 0:
-                parsed = urlparse(url)
-                home = f"{parsed.scheme}://{parsed.netloc}"
-                try:
-                    session.get(home, headers=hdrs, timeout=10, allow_redirects=True)
-                    time.sleep(0.8)
-                except Exception:
-                    pass
-            resp = session.get(url, headers=hdrs, timeout=25, allow_redirects=True)
-            if _is_good_response(resp):
-                return resp
-            if resp.status_code in [404, 410]:
-                return None  # No point retrying
+            r = s.get(url, headers=_hdrs(ua), timeout=20, allow_redirects=True)
+            if _is_real_page(r):
+                return r.text
         except Exception:
             pass
-        time.sleep(1.5 * (attempt + 1))
+        time.sleep(1.5)
     return None
 
 
-def _fetch_google_cache(url: str) -> requests.Response | None:
-    """Strategy 2: Google Cache — works for many blocked sites."""
-    cache_url = f"https://webcache.googleusercontent.com/search?q=cache:{url}&hl=en"
+def fetch_google_cache(url: str) -> str | None:
+    """Google's cached copy — bypasses many blocks."""
     try:
-        ua = random.choice(USER_AGENTS)
-        resp = requests.get(cache_url, headers=_browser_headers(ua), timeout=20)
-        if _is_good_response(resp):
-            return resp
+        cache = f"https://webcache.googleusercontent.com/search?q=cache:{url}&hl=en"
+        r = requests.get(cache, headers=_hdrs(), timeout=20)
+        if _is_real_page(r):
+            return r.text
     except Exception:
         pass
     return None
 
 
-def _fetch_wayback(url: str) -> requests.Response | None:
-    """Strategy 3: Wayback Machine latest snapshot."""
+def fetch_wayback(url: str) -> str | None:
+    """Wayback Machine latest snapshot."""
     try:
-        api = f"http://archive.org/wayback/available?url={url}"
-        meta = requests.get(api, timeout=10).json()
-        snapshot = meta.get("archived_snapshots", {}).get("closest", {})
-        snap_url = snapshot.get("url")
-        if not snap_url:
-            return None
-        ua = random.choice(USER_AGENTS)
-        resp = requests.get(snap_url, headers=_browser_headers(ua), timeout=25)
-        if _is_good_response(resp):
-            return resp
+        meta = requests.get(f"http://archive.org/wayback/available?url={url}", timeout=10).json()
+        snap = meta.get("archived_snapshots",{}).get("closest",{}).get("url")
+        if snap:
+            r = requests.get(snap, headers=_hdrs(), timeout=25)
+            if _is_real_page(r):
+                return r.text
     except Exception:
         pass
     return None
 
 
-def _fetch_scraperapi(url: str, api_key: str) -> requests.Response | None:
-    """Strategy 4: ScraperAPI proxy (requires free API key in secrets)."""
-    try:
-        proxy_url = f"http://api.scraperapi.com?api_key={api_key}&url={url}&render=false"
-        ua = random.choice(USER_AGENTS)
-        resp = requests.get(proxy_url, headers=_browser_headers(ua), timeout=60)
-        if _is_good_response(resp):
-            return resp
-    except Exception:
-        pass
-    return None
-
-
-def fetch_page(url: str, delay: float = 1.5) -> tuple[requests.Response, str]:
+def fetch_with_ai(url: str, client: Anthropic) -> tuple[str, str]:
     """
-    Try multiple strategies in order. Returns (response, strategy_used).
-    Raises Exception if all strategies fail.
+    Use Claude with web_search tool to extract structured data directly.
+    Returns (fake_html_with_data, 'ai_search') — no HTTP fetch needed.
     """
-    # Strategy 1 — Direct
-    resp = _fetch_direct(url, delay)
-    if resp:
-        return resp, "direct"
+    prompt = f"""You are a web data extractor. Search for the page at this URL and extract ALL product/item data you find.
+URL: {url}
 
-    # Strategy 2 — Google Cache
-    resp = _fetch_google_cache(url)
-    if resp:
-        return resp, "google_cache"
+Return a clean HTML table with ALL items you find. Include these columns where available:
+Title/Name, Price, Rating, Description, Image URL, Category, Brand, URL/Link
 
-    # Strategy 3 — Wayback Machine
-    resp = _fetch_wayback(url)
-    if resp:
-        return resp, "wayback"
+Format your entire response as a valid HTML <table> with <thead> and <tbody>.
+Include as many rows as you can find. Do not add explanation, just the HTML table."""
 
-    # Strategy 4 — ScraperAPI (only if key configured)
-    scraper_key = ""
-    try:
-        scraper_key = st.secrets.get("SCRAPERAPI_KEY", "")
-    except Exception:
-        pass
-    if scraper_key:
-        resp = _fetch_scraperapi(url, scraper_key)
-        if resp:
-            return resp, "scraperapi"
-
-    raise Exception(
-        "All fetch strategies failed (direct · Google Cache · Wayback Machine). "
-        "The site has very strong bot protection."
+    resp = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4000,
+        tools=[{"type": "web_search_20250305", "name": "web_search"}],
+        messages=[{"role": "user", "content": prompt}]
     )
+    # Collect all text from response
+    html_parts = []
+    for block in resp.content:
+        if block.type == "text":
+            html_parts.append(block.text)
+    full = "\n".join(html_parts)
+    # Wrap in minimal HTML for BeautifulSoup
+    return f"<html><body>{full}</body></html>", "ai_search"
 
 
+def smart_fetch(url: str, scraperapi_key: str, use_ai_fallback: bool, client=None, delay=1.0) -> tuple[str, str]:
+    """
+    Master fetch: tries all strategies, returns (html, strategy_name).
+    """
+    # 1 — ScraperAPI (most reliable, works on 91mobiles, Amazon, etc.)
+    if scraperapi_key:
+        html = fetch_via_scraperapi(url, scraperapi_key)
+        if html:
+            return html, "scraperapi"
 
-def resolve_img(src: str, base_url: str) -> str:
-    if not src:
-        return ""
+    # 2 — Direct
+    html = fetch_direct(url, delay)
+    if html:
+        return html, "direct"
+
+    # 3 — Google Cache
+    html = fetch_google_cache(url)
+    if html:
+        return html, "google_cache"
+
+    # 4 — Wayback Machine
+    html = fetch_wayback(url)
+    if html:
+        return html, "wayback"
+
+    # 5 — AI web search (no HTTP at all — Claude searches the web)
+    if use_ai_fallback and client:
+        try:
+            html, strat = fetch_with_ai(url, client)
+            return html, strat
+        except Exception:
+            pass
+
+    raise Exception("All strategies failed. The site blocks all automated access including proxies.")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DATA EXTRACTION HELPERS
+# ─────────────────────────────────────────────────────────────────────────────
+
+def resolve_img(src, base):
+    if not src: return ""
     src = src.strip()
-    if src.startswith("data:"):
-        return ""
-    if src.startswith("//"):
-        return "https:" + src
-    if src.startswith("http"):
-        return src
-    return urljoin(base_url, src)
+    if src.startswith("data:"): return ""
+    if src.startswith("//"): return "https:" + src
+    if src.startswith("http"): return src
+    return urljoin(base, src)
 
 
-def extract_images(soup: BeautifulSoup, base_url: str) -> list:
-    seen = set()
-    imgs = []
+def extract_images(soup, base):
+    seen, imgs = set(), []
     for tag in soup.find_all("img"):
         src = (tag.get("src") or tag.get("data-src") or
                tag.get("data-lazy-src") or tag.get("data-original") or "")
-        resolved = resolve_img(src, base_url)
-        if resolved and resolved not in seen:
-            ext = resolved.lower().split("?")[0]
+        r = resolve_img(src, base)
+        if r and r not in seen:
+            ext = r.lower().split("?")[0]
             if any(ext.endswith(e) for e in [".jpg",".jpeg",".png",".webp",".gif",".svg"]):
-                seen.add(resolved)
-                alt = tag.get("alt","")
-                width = tag.get("width","")
-                height = tag.get("height","")
-                imgs.append({"Image URL": resolved, "Alt Text": alt, "Width": width, "Height": height})
+                seen.add(r)
+                imgs.append({"Image URL": r, "Alt Text": tag.get("alt",""),
+                              "Width": tag.get("width",""), "Height": tag.get("height","")})
     return imgs
 
 
-def extract_tables(soup: BeautifulSoup) -> list:
+def extract_tables(soup):
     dfs = []
     for t in soup.find_all("table"):
         try:
             df = pd.read_html(str(t))[0]
-            if not df.empty:
-                dfs.append(df)
-        except Exception:
-            pass
+            if not df.empty: dfs.append(df)
+        except Exception: pass
     return dfs
 
 
-def extract_meta(soup: BeautifulSoup) -> dict:
-    meta = {}
-    meta["Page Title"] = soup.title.get_text(strip=True) if soup.title else ""
-    for m in soup.find_all("meta"):
-        name = m.get("name") or m.get("property") or ""
-        content = m.get("content") or ""
-        if name and content:
-            meta[name] = content
-    # canonical
-    canonical = soup.find("link", rel="canonical")
-    if canonical:
-        meta["canonical"] = canonical.get("href","")
-    return meta
+def extract_meta(soup):
+    m = {}
+    m["Page Title"] = soup.title.get_text(strip=True) if soup.title else ""
+    for tag in soup.find_all("meta"):
+        n = tag.get("name") or tag.get("property") or ""
+        c = tag.get("content") or ""
+        if n and c: m[n] = c
+    return m
 
 
-def extract_links(soup: BeautifulSoup, base_url: str) -> list:
-    seen = set()
-    rows = []
+def extract_links(soup, base):
+    seen, rows = set(), []
     for a in soup.find_all("a", href=True):
         href = a["href"].strip()
         text = a.get_text(strip=True)
-        full = urljoin(base_url, href)
+        full = urljoin(base, href)
         if full not in seen and text:
             seen.add(full)
-            try:
-                domain = urlparse(full).netloc
-            except Exception:
-                domain = ""
-            rows.append({"Link Text": text, "URL": full, "Domain": domain})
+            rows.append({"Link Text": text, "URL": full, "Domain": urlparse(full).netloc})
     return rows
 
 
-def extract_headings(soup: BeautifulSoup) -> list:
+def extract_headings(soup):
     rows = []
     for tag in ["h1","h2","h3","h4","h5","h6"]:
         for el in soup.find_all(tag):
-            text = el.get_text(strip=True)
-            if text:
-                rows.append({"Level": tag.upper(), "Text": text})
+            t = el.get_text(strip=True)
+            if t: rows.append({"Level": tag.upper(), "Text": t})
     return rows
 
 
-def extract_structured_items(soup: BeautifulSoup, base_url: str) -> list:
-    """Deep extraction of repeating items with all fields."""
-    price_re  = re.compile(r'[\$£€₹¥]\s?\d[\d,\.]*|\d[\d,\.]*\s*(?:USD|EUR|GBP|INR)')
-    rating_re = re.compile(r'(\d[\.,]\d)\s*(?:out of|\/\d|stars?|★)', re.I)
+def extract_items(soup, base):
+    price_re  = re.compile(r'[\$£€₹¥]\s?\d[\d,\.]*|\d[\d,\.]*\s*(?:USD|EUR|GBP|INR|rs\.?)', re.I)
+    rating_re = re.compile(r'(\d[\.,]\d)\s*(?:out of|\/\d|stars?|★|rating)', re.I)
 
-    selectors = [
-        "article", "[class*='product']", "[class*='card']",
-        "[class*='item']", "[class*='listing']", "[class*='result']",
-        "[class*='post']", "[class*='news']", "[class*='job']", "li"
-    ]
-
+    selectors = ["article","[class*='product']","[class*='card']","[class*='item']",
+                 "[class*='listing']","[class*='result']","[class*='post']","li"]
     candidates = []
     for sel in selectors:
         found = soup.select(sel)
         if len(found) >= 3:
-            candidates = found[:150]
-            break
+            candidates = found[:150]; break
 
     items = []
     for el in candidates:
         text = el.get_text(separator=" ", strip=True)
-        if len(text) < 15:
-            continue
-
+        if len(text) < 15: continue
         row = {}
-
-        # Title
         for t in ["h1","h2","h3","h4","h5","a"]:
             tag = el.find(t)
-            if tag:
-                row["Title"] = tag.get_text(strip=True)[:220]
-                break
-        if "Title" not in row:
-            row["Title"] = text[:120]
+            if tag: row["Title"] = tag.get_text(strip=True)[:220]; break
+        if "Title" not in row: row["Title"] = text[:120]
 
-        # Image
-        img_tag = el.find("img")
-        if img_tag:
-            src = (img_tag.get("src") or img_tag.get("data-src") or
-                   img_tag.get("data-lazy-src") or img_tag.get("data-original") or "")
-            row["Image URL"] = resolve_img(src, base_url)
-            row["Image Alt"] = img_tag.get("alt","")
-        else:
-            row["Image URL"] = ""
-            row["Image Alt"] = ""
+        img = el.find("img")
+        row["Image URL"] = resolve_img(
+            img.get("src") or img.get("data-src") or img.get("data-lazy-src") or "" if img else "", base)
+        row["Image Alt"] = img.get("alt","") if img else ""
 
-        # Price
         pm = price_re.search(text)
         row["Price"] = pm.group(0).strip() if pm else ""
-
-        # Rating
         rm = rating_re.search(text)
         row["Rating"] = rm.group(1).replace(",",".") if rm else ""
 
-        # Link / URL
         link = el.find("a", href=True)
-        row["URL"] = urljoin(base_url, link["href"]) if link else ""
+        row["URL"] = urljoin(base, link["href"]) if link else ""
 
-        # Description — longest <p> inside
-        paras = [p.get_text(strip=True) for p in el.find_all("p") if len(p.get_text(strip=True)) > 20]
-        row["Description"] = paras[0][:350] if paras else ""
+        paras = [p.get_text(strip=True) for p in el.find_all("p") if len(p.get_text(strip=True))>20]
+        row["Description"] = paras[0][:300] if paras else ""
 
-        # Category from data attrs
-        cat = (el.get("data-category") or el.get("data-type") or
-               el.get("data-section") or el.get("data-department") or "")
-        row["Category"] = cat
+        row["Category"] = (el.get("data-category") or el.get("data-type") or
+                           el.get("data-section") or "")
+        row["Brand"]    = el.get("data-brand") or el.get("data-seller") or ""
+        row["SKU"]      = el.get("data-sku") or el.get("data-id") or ""
 
-        # Brand
-        brand = el.get("data-brand") or el.get("data-seller") or ""
-        row["Brand"] = brand
-
-        # SKU / ID
-        sku = el.get("data-sku") or el.get("data-id") or el.get("data-product-id") or ""
-        row["SKU / ID"] = sku
-
-        # Availability
-        avail_re = re.compile(r'in stock|out of stock|available|unavailable|sold out', re.I)
-        am = avail_re.search(text)
+        am = re.search(r'in stock|out of stock|available|sold out', text, re.I)
         row["Availability"] = am.group(0).title() if am else ""
-
-        # Extra data-* attributes
-        for attr, val in el.attrs.items():
-            if (attr.startswith("data-") and val and
-                    attr not in ["data-src","data-lazy-src","data-original",
-                                 "data-category","data-type","data-brand",
-                                 "data-sku","data-id","data-product-id"]):
-                key = attr.replace("data-","").replace("-"," ").title()
-                if len(str(val)) < 120:
-                    row[key] = str(val)
-
         items.append(row)
-
     return items
 
 
-def ai_analyze(html: str, client: Anthropic) -> dict:
-    prompt = f"""Analyze this HTML page for web scraping. Return ONLY valid JSON (no markdown):
-{{
-  "page_type": "e-commerce|news|directory|blog|jobs|real-estate|other",
-  "summary": "1-2 sentence description of what this page contains",
-  "categories": ["list", "of", "detected", "categories or topics"],
-  "column_map": {{"old_col": "Better Name"}},
-  "key_fields": ["most important data fields found"]
-}}
-
-HTML (first 4000 chars):
-{html[:4000]}"""
-
-    resp = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=800,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    raw = re.sub(r"```json|```", "", resp.content[0].text.strip()).strip()
-    try:
-        return json.loads(raw)
-    except Exception:
-        return {"page_type":"other","summary":"","categories":[],"column_map":{},"key_fields":[]}
+def ai_analyze(html, client):
+    prompt = f"""Analyze this HTML. Return ONLY valid JSON (no markdown):
+{{"page_type":"e-commerce|news|directory|blog|jobs|real-estate|other",
+"summary":"1 sentence",
+"categories":["list"],
+"key_fields":["fields found"]}}
+HTML:{html[:3000]}"""
+    r = client.messages.create(model="claude-sonnet-4-20250514", max_tokens=400,
+        messages=[{"role":"user","content":prompt}])
+    raw = re.sub(r"```json|```","",r.content[0].text.strip()).strip()
+    try: return json.loads(raw)
+    except: return {"page_type":"other","summary":"","categories":[],"key_fields":[]}
 
 
-def detect_pii(df: pd.DataFrame) -> list:
-    pii_kw = ["email","phone","mobile","address","ssn","passport","dob","birth","national","tax","aadhaar","pan"]
-    return [c for c in df.columns if any(k in str(c).lower() for k in pii_kw)]
-
-
-def clean_df(df: pd.DataFrame, trim: bool, dedup_col=None) -> pd.DataFrame:
-    if trim:
-        df = df.apply(lambda col: col.map(lambda x: x.strip() if isinstance(x, str) else x))
+def clean_df(df, trim=True, dedup_col=None):
+    if trim: df = df.apply(lambda c: c.map(lambda x: x.strip() if isinstance(x,str) else x))
     if dedup_col and dedup_col in df.columns:
         df = df.drop_duplicates(subset=[dedup_col])
     return df.reset_index(drop=True)
 
 
-def df_to_excel(df: pd.DataFrame) -> bytes:
+def to_excel(df):
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment
     from openpyxl.utils import get_column_letter
     buf = io.BytesIO()
     wb = Workbook(); ws = wb.active; ws.title = "web2sheet"
-    hfill = PatternFill("solid", fgColor="1C2640")
-    hfont = Font(bold=True, color="7C9CFF", name="Calibri")
-    for ci, col in enumerate(df.columns, 1):
-        c = ws.cell(row=1, column=ci, value=str(col))
-        c.fill = hfill; c.font = hfont; c.alignment = Alignment(horizontal="center")
-    for ri, row in enumerate(df.itertuples(index=False), 2):
-        for ci, val in enumerate(row, 1):
-            ws.cell(row=ri, column=ci, value=val)
-    for ci in range(1, len(df.columns)+1):
-        ws.column_dimensions[get_column_letter(ci)].width = 24
+    hf = PatternFill("solid",fgColor="1C2640")
+    hfont = Font(bold=True,color="7C9CFF",name="Calibri")
+    for ci,col in enumerate(df.columns,1):
+        c = ws.cell(row=1,column=ci,value=str(col))
+        c.fill=hf; c.font=hfont; c.alignment=Alignment(horizontal="center")
+    for ri,row in enumerate(df.itertuples(index=False),2):
+        for ci,val in enumerate(row,1):
+            ws.cell(row=ri,column=ci,value=val)
+    for ci in range(1,len(df.columns)+1):
+        ws.column_dimensions[get_column_letter(ci)].width=22
     wb.save(buf); buf.seek(0)
     return buf.read()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SESSION STATE
 # ─────────────────────────────────────────────────────────────────────────────
-defaults = {
-    "items_df": None, "images": [], "links_df": None,
-    "headings_df": None, "tables": [], "meta": {},
-    "ai_info": {}, "raw_html": "", "base_url": "",
-}
-for k, v in defaults.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
+DEFAULTS = {"items_df":None,"images":[],"links_df":None,"headings_df":None,
+            "tables":[],"meta":{},"ai_info":{},"strategy":"","base_url":""}
+for k,v in DEFAULTS.items():
+    if k not in st.session_state: st.session_state[k]=v
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SIDEBAR
 # ─────────────────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown('<div class="aura-logo">web2sheet</div>', unsafe_allow_html=True)
-    st.caption("URL → Spreadsheet · v2.0")
-    st.markdown('<hr class="aura-divider">', unsafe_allow_html=True)
+    st.markdown('<div class="logo">web2sheet</div>', unsafe_allow_html=True)
+    st.caption("URL → Spreadsheet")
+    st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
-    st.subheader("⚙️ What to Extract")
-    use_ai       = st.toggle("🧠 AI Page Analysis", value=True)
-    extract_imgs = st.toggle("🖼️ Images", value=True)
-    extract_lnks = st.toggle("🔗 Links", value=True)
-    extract_hdrs = st.toggle("📝 Headings", value=True)
-    extract_tbls = st.toggle("📊 HTML Tables", value=True)
-    trim_ws      = st.toggle("✂️ Trim Whitespace", value=True)
-    dedup        = st.toggle("🗑️ Remove Duplicates", value=False)
+    # ── ScraperAPI key input ─────────────────────────────────────────────────
+    st.markdown("#### 🔑 ScraperAPI Key")
+    st.markdown("""<div style="font-size:.75rem;color:#9aa4c7;margin-bottom:.4rem;">
+    Unlocks 91mobiles, Flipkart, news sites & more.
+    <a href="https://scraperapi.com" target="_blank" style="color:#7c9cff;">Get free key →</a>
+    (1,000 req/month free)
+    </div>""", unsafe_allow_html=True)
 
-    st.markdown('<hr class="aura-divider">', unsafe_allow_html=True)
-    st.subheader("🔒 Safety")
-    chk_robots      = st.toggle("Check robots.txt", value=True)
-    rate_delay      = st.slider("Request delay (s)", 0.5, 5.0, 1.5, 0.5)
-    max_img_preview = st.slider("Max image previews", 8, 60, 24, 4)
+    # Pull from secrets first, allow override
+    default_key = ""
+    try: default_key = st.secrets.get("SCRAPERAPI_KEY","")
+    except Exception: pass
 
-    st.markdown('<hr class="aura-divider">', unsafe_allow_html=True)
-    st.caption("Rate limited · PII detection")
+    scraper_key = st.text_input("ScraperAPI Key", value=default_key,
+                                 placeholder="Enter key to bypass blocks...",
+                                 type="password", label_visibility="collapsed")
+
+    if scraper_key:
+        st.success("✅ ScraperAPI active")
+    else:
+        st.warning("⚠️ No key — only open sites work")
+
+    st.markdown('<hr class="divider">', unsafe_allow_html=True)
+    st.markdown("#### ⚙️ Extract")
+    use_ai      = st.toggle("🧠 AI Analysis", value=True)
+    ai_fallback = st.toggle("🤖 AI Search Fallback", value=True,
+                            help="If all fetch methods fail, use Claude web search to extract data")
+    ext_imgs    = st.toggle("🖼️ Images", value=True)
+    ext_links   = st.toggle("🔗 Links", value=True)
+    ext_hdrs    = st.toggle("📝 Headings", value=True)
+    ext_tbls    = st.toggle("📊 Tables", value=True)
+    trim_ws     = st.toggle("✂️ Trim Whitespace", value=True)
+    dedup       = st.toggle("🗑️ De-duplicate", value=False)
+    rate_delay  = st.slider("Delay (s)", 0.5, 4.0, 1.0, 0.5)
+    max_imgs    = st.slider("Max image previews", 8, 60, 24, 4)
+
+    st.markdown('<hr class="divider">', unsafe_allow_html=True)
+    st.caption("PII detection · Rate limited")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HERO
 # ─────────────────────────────────────────────────────────────────────────────
 st.markdown("""
-<div style="text-align:center;padding:1.8rem 1rem .8rem;">
-  <div class="aura-logo">web2sheet</div>
-  <div style="color:#9aa4c7;font-size:.88rem;margin-top:.4rem;">
-    Paste a URL. Get a spreadsheet.
-  </div>
-</div>
-""", unsafe_allow_html=True)
+<div style="text-align:center;padding:1.6rem 1rem .6rem;">
+  <div class="logo">web2sheet</div>
+  <div style="color:#9aa4c7;font-size:.88rem;margin-top:.3rem;">Paste a URL. Get a spreadsheet.</div>
+</div>""", unsafe_allow_html=True)
 
-col_url, col_btn = st.columns([5, 1])
-with col_url:
-    url_input = st.text_input("URL", placeholder="https://example.com/products or any page...",
+# ── URL bar ───────────────────────────────────────────────────────────────────
+cu, cb = st.columns([5,1])
+with cu:
+    url_input = st.text_input("URL", placeholder="https://91mobiles.com/... or any page",
                                label_visibility="collapsed")
-with col_btn:
-    extract_btn = st.button("⚡ Extract", use_container_width=True, type="primary")
+with cb:
+    go = st.button("⚡ Extract", use_container_width=True, type="primary")
 
-st.markdown('<hr class="aura-divider">', unsafe_allow_html=True)
+# ── No-key notice ─────────────────────────────────────────────────────────────
+if not scraper_key and not go:
+    st.markdown("""
+<div class="key-banner">
+  <b>💡 For best results — add a free ScraperAPI key in the sidebar.</b><br>
+  <span style="color:#9aa4c7;font-size:.82rem;">
+  Without it, only open sites (Wikipedia, HackerNews, books.toscrape.com) work reliably.<br>
+  With it: 91mobiles, Flipkart, SmartPrix, news sites, and most others work too.<br>
+  <a href="https://scraperapi.com" target="_blank" style="color:#7c9cff;">Get free key at scraperapi.com →</a>
+  </span>
+</div>""", unsafe_allow_html=True)
+
+st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # EXTRACTION
 # ─────────────────────────────────────────────────────────────────────────────
-if extract_btn and url_input:
-    for k, v in defaults.items():
-        st.session_state[k] = v
+if go and url_input:
+    for k,v in DEFAULTS.items(): st.session_state[k]=v
+
+    client = None
+    try: client = Anthropic()
+    except Exception: pass
 
     with st.status("⚡ Extracting...", expanded=True) as status:
 
-        # 1 robots
-        if chk_robots:
-            st.write("🤖 Checking robots.txt...")
-            if not check_robots(url_input):
-                st.warning("⚠️ robots.txt asks bots not to scrape this URL. Proceeding anyway — use responsibly.")
-            else:
-                st.write("✅ robots.txt — allowed")
-
-        # 2 fetch
+        # ── Fetch ──────────────────────────────────────────────────────────
         st.write("🌐 Fetching page...")
-
-        # Pre-check for known completely-blocked domains
-        block_msg = detect_blocked_domain(url_input)
-        if block_msg:
-            st.error(f"🚫 **Blocked domain:** {block_msg}")
-            status.update(label="❌ Site blocks all scrapers", state="error")
-            st.stop()
-
+        strategy_labels = {
+            "scraperapi":  "✅ Fetched via ScraperAPI",
+            "direct":      "✅ Fetched directly",
+            "google_cache":"✅ Fetched via Google Cache",
+            "wayback":     "✅ Fetched via Wayback Machine",
+            "ai_search":   "✅ Data extracted via AI web search (no HTML fetch needed)",
+        }
         try:
-            resp, strategy = fetch_page(url_input, delay=rate_delay)
-            strategy_labels = {
-                "direct":       "✅ Fetched directly",
-                "google_cache": "✅ Fetched via Google Cache",
-                "wayback":      "✅ Fetched via Wayback Machine (archived copy)",
-                "scraperapi":   "✅ Fetched via ScraperAPI proxy",
-            }
-            st.write(strategy_labels.get(strategy, "✅ Fetched"))
-            if strategy in ("google_cache", "wayback"):
-                st.info(f"ℹ️ Direct access was blocked — using {'Google Cache' if strategy=='google_cache' else 'Wayback Machine'} snapshot. Data may be slightly outdated.")
-
+            html, strategy = smart_fetch(
+                url_input, scraper_key, ai_fallback and client is not None,
+                client=client, delay=rate_delay
+            )
+            st.write(strategy_labels.get(strategy, f"✅ Fetched ({strategy})"))
+            if strategy == "google_cache":
+                st.info("ℹ️ Using Google's cached copy — may be hours/days old.")
+            elif strategy == "wayback":
+                st.info("ℹ️ Using Wayback Machine archive — may be outdated.")
+            elif strategy == "ai_search":
+                st.info("ℹ️ Direct fetch blocked — Claude searched the web and extracted data instead.")
+            st.session_state.strategy = strategy
         except Exception as e:
             st.error(f"❌ {e}")
-            st.info("💡 Try: Wikipedia · news sites · books.toscrape.com · quotes.toscrape.com · SmartPrix · any open site without Cloudflare.")
-            status.update(label="❌ All fetch strategies failed", state="error")
+            st.markdown("""
+**What to do:**
+- Add a **free ScraperAPI key** in the sidebar (fixes 90% of blocked sites)
+- Try an open site: `books.toscrape.com`, `quotes.toscrape.com`, `en.wikipedia.org`
+- Enable **AI Search Fallback** in the sidebar
+""")
+            status.update(label="❌ Fetch failed", state="error")
             st.stop()
 
-        soup = BeautifulSoup(resp.text, "html.parser")
-        st.session_state.raw_html = resp.text
+        soup = BeautifulSoup(html, "html.parser")
         st.session_state.base_url = url_input
-        st.write(f"✅ Fetched — {len(resp.text):,} characters")
+        st.write(f"📄 {len(html):,} characters parsed")
 
-        # 3 AI
-        if use_ai:
-            st.write("🧠 AI analyzing page...")
+        # ── AI Analysis ────────────────────────────────────────────────────
+        if use_ai and client and strategy != "ai_search":
+            st.write("🧠 AI analyzing...")
             try:
-                client = Anthropic()
-                ai_info = ai_analyze(resp.text, client)
+                ai_info = ai_analyze(html, client)
                 st.session_state.ai_info = ai_info
-                st.write(f"✅ Page type: **{ai_info.get('page_type','?')}** — {ai_info.get('summary','')[:100]}")
+                st.write(f"✅ {ai_info.get('page_type','?')} — {ai_info.get('summary','')[:90]}")
             except Exception as e:
                 st.write(f"⚠️ AI skipped: {e}")
 
-        # 4 items
-        st.write("🃏 Extracting structured items...")
-        items = extract_structured_items(soup, url_input)
+        # ── Structured items ───────────────────────────────────────────────
+        st.write("🃏 Extracting items...")
+        items = extract_items(soup, url_input)
         if items:
             df = pd.DataFrame(items)
-            df = clean_df(df, trim_ws, None)
-            col_map = st.session_state.ai_info.get("column_map", {})
-            if col_map:
-                df = df.rename(columns={k:v for k,v in col_map.items() if k in df.columns})
-            if dedup:
-                df = df.drop_duplicates(subset=["Title"]).reset_index(drop=True)
-            pii = detect_pii(df)
-            if pii:
-                st.warning(f"🔒 PII detected in: `{', '.join(pii)}`")
+            df = clean_df(df, trim_ws)
+            if dedup: df = df.drop_duplicates(subset=["Title"]).reset_index(drop=True)
+            pii_cols = [c for c in df.columns if any(k in c.lower() for k in
+                        ["email","phone","address","ssn","dob","national"])]
+            if pii_cols: st.warning(f"🔒 PII detected: `{', '.join(pii_cols)}`")
             st.session_state.items_df = df
-            st.write(f"✅ {len(df)} items · {len(df.columns)} fields each")
+            st.write(f"✅ {len(df)} items · {len(df.columns)} fields")
         else:
-            st.write("ℹ️ No repeating items/cards detected")
+            st.write("ℹ️ No repeating items found")
 
-        # 5 images
-        if extract_imgs:
-            st.write("🖼️ Collecting images...")
+        # ── Images ────────────────────────────────────────────────────────
+        if ext_imgs:
             imgs = extract_images(soup, url_input)
             st.session_state.images = imgs
-            st.write(f"✅ {len(imgs)} images found")
+            st.write(f"✅ {len(imgs)} images")
 
-        # 6 tables
-        if extract_tbls:
-            st.write("📊 Scanning HTML tables...")
-            tables = extract_tables(soup)
-            st.session_state.tables = tables
-            st.write(f"✅ {len(tables)} table(s)")
+        # ── Tables ────────────────────────────────────────────────────────
+        if ext_tbls:
+            tbls = extract_tables(soup)
+            st.session_state.tables = tbls
+            st.write(f"✅ {len(tbls)} tables")
 
-        # 7 links
-        if extract_lnks:
-            st.write("🔗 Collecting links...")
-            links = extract_links(soup, url_input)
-            st.session_state.links_df = pd.DataFrame(links) if links else pd.DataFrame()
-            st.write(f"✅ {len(links)} links")
+        # ── Links ─────────────────────────────────────────────────────────
+        if ext_links:
+            lnks = extract_links(soup, url_input)
+            st.session_state.links_df = pd.DataFrame(lnks) if lnks else pd.DataFrame()
+            st.write(f"✅ {len(lnks)} links")
 
-        # 8 headings
-        if extract_hdrs:
-            st.write("📝 Extracting headings...")
+        # ── Headings ──────────────────────────────────────────────────────
+        if ext_hdrs:
             hdgs = extract_headings(soup)
             st.session_state.headings_df = pd.DataFrame(hdgs) if hdgs else pd.DataFrame()
             st.write(f"✅ {len(hdgs)} headings")
 
-        # 9 meta
-        st.write("🏷️ Reading page metadata...")
+        # ── Meta ──────────────────────────────────────────────────────────
         st.session_state.meta = extract_meta(soup)
 
-        status.update(label="✅ All categories extracted!", state="complete")
+        status.update(label="✅ Done!", state="complete")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # RESULTS
 # ─────────────────────────────────────────────────────────────────────────────
-has_data = any([
-    st.session_state.items_df is not None,
-    st.session_state.images,
-    st.session_state.links_df is not None,
-    st.session_state.tables,
-])
+has_data = any([st.session_state.items_df is not None,
+                st.session_state.images,
+                st.session_state.links_df is not None,
+                st.session_state.tables])
 
 if has_data:
-    ai = st.session_state.ai_info
-
-    # AI banner
-    if ai:
-        page_type = ai.get("page_type","")
-        summary   = ai.get("summary","")
-        cats      = ai.get("categories",[])
-        key_flds  = ai.get("key_fields",[])
-        icons     = {"e-commerce":"🛒","news":"📰","directory":"📋","blog":"✍️","jobs":"💼","real-estate":"🏠","other":"🌐"}
-        icon      = icons.get(page_type,"🌐")
-        cats_html = " ".join(f'<span class="cat-pill">{c}</span>' for c in cats[:12])
-        flds_html = f'<div style="margin-top:.4rem;font-size:.77rem;color:#9aa4c7;">Key fields: {", ".join(key_flds[:8])}</div>' if key_flds else ""
-        st.markdown(f"""
-<div class="glass-card" style="border-left:3px solid #7c9cff;">
-  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-    <span style="font-size:1.8rem;">{icon}</span>
-    <div>
-      <div style="font-family:Poppins,sans-serif;font-weight:700;font-size:.95rem;">
-        AI Detected: <span style="color:#7c9cff;">{page_type.replace('-',' ').title()}</span>
-      </div>
-      <div style="color:#9aa4c7;font-size:.82rem;">{summary}</div>
-    </div>
-  </div>
-  <div style="margin-top:.7rem;">{cats_html}</div>
-  {flds_html}
-</div>""", unsafe_allow_html=True)
-
-    # Stats
+    ai   = st.session_state.ai_info
+    base = st.session_state.base_url
     items_df = st.session_state.items_df
     images   = st.session_state.images
     links_df = st.session_state.links_df
@@ -719,337 +602,263 @@ if has_data:
     hdgs_df  = st.session_state.headings_df
     meta     = st.session_state.meta
 
+    # AI banner
+    if ai and ai.get("page_type"):
+        icons = {"e-commerce":"🛒","news":"📰","directory":"📋",
+                 "blog":"✍️","jobs":"💼","real-estate":"🏠","other":"🌐"}
+        icon = icons.get(ai.get("page_type","other"),"🌐")
+        cats_html = " ".join(f'<span class="pill">{c}</span>' for c in ai.get("categories",[])[:10])
+        st.markdown(f"""
+<div class="glass" style="border-left:3px solid #7c9cff;padding:1rem 1.2rem;">
+  <span style="font-size:1.6rem;">{icon}</span>
+  <span style="font-family:Poppins,sans-serif;font-weight:700;margin-left:10px;color:#7c9cff;">
+    {ai.get("page_type","").replace("-"," ").title()}
+  </span>
+  <span style="color:#9aa4c7;font-size:.82rem;margin-left:10px;">{ai.get("summary","")}</span>
+  <div style="margin-top:.5rem;">{cats_html}</div>
+</div>""", unsafe_allow_html=True)
+
+    # Strategy badge
+    strat = st.session_state.strategy
+    strat_color = {"scraperapi":"#00e0ff","direct":"#28c840",
+                   "google_cache":"#febc2e","wayback":"#febc2e","ai_search":"#7c9cff"}
+    if strat:
+        sc = strat_color.get(strat,"#9aa4c7")
+        st.markdown(f'<span style="font-size:.75rem;padding:3px 10px;background:rgba(0,0,0,0.3);border:1px solid {sc};border-radius:20px;color:{sc};">Source: {strat.replace("_"," ").title()}</span>',
+                    unsafe_allow_html=True)
+
+    # Stats
     c1,c2,c3,c4,c5 = st.columns(5)
-    c1.markdown(f'<div class="stat-box"><div class="stat-num">{len(items_df) if items_df is not None else 0}</div><div class="stat-label">Items / Cards</div></div>', unsafe_allow_html=True)
-    c2.markdown(f'<div class="stat-box"><div class="stat-num">{len(images)}</div><div class="stat-label">Images</div></div>', unsafe_allow_html=True)
-    c3.markdown(f'<div class="stat-box"><div class="stat-num">{len(links_df) if links_df is not None else 0}</div><div class="stat-label">Links</div></div>', unsafe_allow_html=True)
-    c4.markdown(f'<div class="stat-box"><div class="stat-num">{len(tables)}</div><div class="stat-label">Tables</div></div>', unsafe_allow_html=True)
-    c5.markdown(f'<div class="stat-box"><div class="stat-num">{len(hdgs_df) if hdgs_df is not None else 0}</div><div class="stat-label">Headings</div></div>', unsafe_allow_html=True)
+    c1.markdown(f'<div class="sbox"><div class="snum">{len(items_df) if items_df is not None else 0}</div><div class="slbl">Items</div></div>',unsafe_allow_html=True)
+    c2.markdown(f'<div class="sbox"><div class="snum">{len(images)}</div><div class="slbl">Images</div></div>',unsafe_allow_html=True)
+    c3.markdown(f'<div class="sbox"><div class="snum">{len(links_df) if links_df is not None else 0}</div><div class="slbl">Links</div></div>',unsafe_allow_html=True)
+    c4.markdown(f'<div class="sbox"><div class="snum">{len(tables)}</div><div class="slbl">Tables</div></div>',unsafe_allow_html=True)
+    c5.markdown(f'<div class="sbox"><div class="snum">{len(hdgs_df) if hdgs_df is not None else 0}</div><div class="slbl">Headings</div></div>',unsafe_allow_html=True)
+    st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
-    st.markdown('<hr class="aura-divider">', unsafe_allow_html=True)
+    # ── TABS ──────────────────────────────────────────────────────────────────
+    tabs = st.tabs(["🃏 Items","🖼️ Images","📊 Tables","🔗 Links","📝 Headings","🏷️ Meta","📥 Export"])
 
-    # TABS
-    tabs = st.tabs(["🃏 Items & Cards", "🖼️ Images", "📊 Tables", "🔗 Links", "📝 Headings", "🏷️ Page Meta", "📥 Export All"])
-
-    # ── TAB 1: Items & Cards ─────────────────────────────────────────────────
+    # ── Items ──────────────────────────────────────────────────────────────────
     with tabs[0]:
         if items_df is not None and not items_df.empty:
             df = items_df.copy()
-
-            view_mode = st.radio("View", ["🃏 Card Gallery", "📋 Table", "🔍 Detail Inspector"],
-                                 horizontal=True, label_visibility="collapsed")
-
-            col_s, col_f = st.columns([3,2])
-            with col_s:
-                search = st.text_input("Search", placeholder="Filter by keyword...", label_visibility="collapsed")
-            with col_f:
-                if "Category" in df.columns:
-                    cat_options = ["All"] + sorted([x for x in df["Category"].dropna().unique() if x])
-                    sel_cat = st.selectbox("Category", cat_options, label_visibility="collapsed")
-                else:
-                    sel_cat = "All"
-
-            if search:
-                mask = df.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)
-                df = df[mask]
+            view = st.radio("View",["🃏 Cards","📋 Table","🔍 Inspector"],horizontal=True,label_visibility="collapsed")
+            sc1,sc2 = st.columns([3,2])
+            with sc1:
+                srch = st.text_input("Search","",placeholder="Filter...",label_visibility="collapsed")
+            with sc2:
+                cats = ["All"]+sorted([x for x in df.get("Category",pd.Series()).dropna().unique() if x])
+                sel_cat = st.selectbox("Cat",cats,label_visibility="collapsed") if "Category" in df.columns else "All"
+            if srch:
+                m = df.apply(lambda r: r.astype(str).str.contains(srch,case=False).any(),axis=1)
+                df = df[m]
             if sel_cat != "All" and "Category" in df.columns:
-                df = df[df["Category"] == sel_cat]
+                df = df[df["Category"]==sel_cat]
+            st.caption(f"{len(df)} of {len(items_df)} items")
 
-            st.caption(f"Showing **{len(df)}** of {len(items_df)} items")
-
-            # Card Gallery
-            if view_mode == "🃏 Card Gallery":
-                n = 3
-                for i in range(0, len(df), n):
-                    chunk = df.iloc[i:i+n]
-                    cols = st.columns(n)
-                    for ci, (_, item) in enumerate(chunk.iterrows()):
+            if view == "🃏 Cards":
+                for i in range(0, len(df), 3):
+                    chunk = df.iloc[i:i+3]
+                    cols = st.columns(3)
+                    for ci,(_, item) in enumerate(chunk.iterrows()):
                         with cols[ci]:
                             img_url = str(item.get("Image URL",""))
                             title   = str(item.get("Title","—"))[:90]
                             price   = str(item.get("Price",""))
                             rating  = str(item.get("Rating",""))
-                            desc    = str(item.get("Description",""))[:180]
-                            url     = str(item.get("URL",""))
+                            desc    = str(item.get("Description",""))[:160]
+                            url_    = str(item.get("URL",""))
                             cat     = str(item.get("Category",""))
                             brand   = str(item.get("Brand",""))
                             avail   = str(item.get("Availability",""))
-                            sku     = str(item.get("SKU / ID",""))
 
-                            img_html  = f'<img src="{img_url}" style="width:100%;height:175px;object-fit:cover;border-radius:12px 12px 0 0;display:block;" onerror="this.style.display=\'none\'">' if img_url else '<div style="width:100%;height:80px;background:rgba(124,156,255,0.07);border-radius:12px 12px 0 0;display:flex;align-items:center;justify-content:center;font-size:2rem;">📦</div>'
-                            cat_html  = f'<span class="cat-pill">{cat}</span>' if cat and cat != "nan" else ""
-                            brand_html= f'<span style="font-size:.72rem;color:#9aa4c7;">by {brand}</span>' if brand and brand != "nan" else ""
-                            price_html= f'<div class="product-price">{price}</div>' if price and price != "nan" else ""
-                            rate_html = f'<div class="product-rating">⭐ {rating}</div>' if rating and rating != "nan" else ""
-                            avail_html= f'<div style="font-size:.72rem;color:#28c840;">{avail}</div>' if avail and avail != "nan" else ""
-                            sku_html  = f'<div style="font-size:.68rem;color:#9aa4c7;">SKU: {sku}</div>' if sku and sku != "nan" else ""
-                            desc_html = f'<div class="product-desc">{desc}</div>' if desc and desc != "nan" else ""
-                            url_html  = f'<div style="margin-top:.4rem;"><a href="{url}" target="_blank" style="color:#7c9cff;font-size:.75rem;">🔗 Visit page →</a></div>' if url and url != "nan" else ""
+                            img_h = (f'<img src="{img_url}" style="width:100%;height:165px;object-fit:cover;border-radius:12px 12px 0 0;display:block;" onerror="this.style.display=\'none\'">'
+                                     if img_url and img_url!="nan" else
+                                     '<div style="width:100%;height:70px;background:rgba(124,156,255,0.07);border-radius:12px 12px 0 0;display:flex;align-items:center;justify-content:center;font-size:2rem;">📦</div>')
+                            parts = []
+                            if cat and cat!="nan":   parts.append(f'<span class="pill">{cat}</span>')
+                            parts.append(f'<div class="ptitle">{title}</div>')
+                            if brand and brand!="nan": parts.append(f'<div style="font-size:.7rem;color:#9aa4c7;">by {brand}</div>')
+                            if price and price!="nan": parts.append(f'<div class="pprice">{price}</div>')
+                            if rating and rating!="nan": parts.append(f'<div class="prating">⭐ {rating}</div>')
+                            if avail and avail!="nan": parts.append(f'<div style="font-size:.7rem;color:#28c840;">{avail}</div>')
+                            if desc and desc!="nan": parts.append(f'<div class="pdesc">{desc}</div>')
+                            if url_ and url_!="nan": parts.append(f'<a href="{url_}" target="_blank" style="color:#7c9cff;font-size:.74rem;">🔗 Visit →</a>')
+                            body = "".join(parts)
+                            st.markdown(f'<div class="pcard">{img_h}<div class="pbody">{body}</div></div>',unsafe_allow_html=True)
 
-                            st.markdown(f"""
-<div class="product-card">
-  {img_html}
-  <div class="product-body">
-    {cat_html}
-    <div class="product-title">{title}</div>
-    {brand_html}
-    {price_html}
-    {rate_html}
-    {avail_html}
-    {sku_html}
-    {desc_html}
-    {url_html}
-  </div>
-</div>""", unsafe_allow_html=True)
+            elif view == "📋 Table":
+                all_c = list(df.columns)
+                show  = st.multiselect("Columns",all_c,default=all_c[:9],key="vis")
+                cfg   = {c: st.column_config.LinkColumn(c) for c in (show or all_c) if "url" in c.lower()}
+                st.dataframe(df[show] if show else df, use_container_width=True, height=520, column_config=cfg)
 
-            # Table
-            elif view_mode == "📋 Table":
-                all_cols = list(df.columns)
-                show_cols = st.multiselect("Columns to show", all_cols, default=all_cols[:10], key="vis_cols")
-                view_df = df[show_cols] if show_cols else df
-                # Make URL columns clickable
-                col_cfg = {}
-                for c in view_df.columns:
-                    if "url" in c.lower():
-                        col_cfg[c] = st.column_config.LinkColumn(c)
-                st.dataframe(view_df, use_container_width=True, height=520, column_config=col_cfg)
-
-            # Detail Inspector
-            elif view_mode == "🔍 Detail Inspector":
-                idx = st.slider("Item #", 1, max(len(df),1), 1) - 1
+            else:  # Inspector
+                idx = st.slider("Item",1,max(len(df),1),1)-1
                 item = df.iloc[idx]
-                left, right = st.columns([1, 2])
-                with left:
-                    img_url = str(item.get("Image URL",""))
-                    if img_url and img_url != "nan":
-                        st.markdown(f'<img src="{img_url}" style="width:100%;border-radius:12px;border:1px solid rgba(255,255,255,0.08);" onerror="this.style.display=\'none\'">',
-                                    unsafe_allow_html=True)
+                l,r = st.columns([1,2])
+                with l:
+                    iu = str(item.get("Image URL",""))
+                    if iu and iu!="nan":
+                        st.markdown(f'<img src="{iu}" style="width:100%;border-radius:12px;border:1px solid rgba(255,255,255,0.08);" onerror="this.style.display=\'none\'">',unsafe_allow_html=True)
                     else:
-                        st.markdown('<div style="width:100%;height:200px;background:rgba(124,156,255,0.07);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:3.5rem;">📦</div>', unsafe_allow_html=True)
-                with right:
-                    rows_html = ""
-                    for col, val in item.items():
-                        val_str = str(val)
-                        if not val_str or val_str in ["nan","","None"]:
-                            continue
-                        if col == "Image URL":
-                            continue
-                        if col == "URL":
-                            val_str = f'<a href="{val_str}" target="_blank" style="color:#7c9cff;">{val_str[:80]}</a>'
-                        rows_html += f"<tr><td>{col}</td><td>{val_str}</td></tr>"
-                    st.markdown(f'<table class="detail-table"><tbody>{rows_html}</tbody></table>', unsafe_allow_html=True)
-
+                        st.markdown('<div style="width:100%;height:180px;background:rgba(124,156,255,0.07);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:3rem;">📦</div>',unsafe_allow_html=True)
+                with r:
+                    rows_h = ""
+                    for col,val in item.items():
+                        vs = str(val)
+                        if not vs or vs in ["nan","","None"] or col=="Image URL": continue
+                        if col=="URL": vs=f'<a href="{vs}" target="_blank" style="color:#7c9cff;">{vs[:70]}</a>'
+                        rows_h += f"<tr><td>{col}</td><td>{vs}</td></tr>"
+                    st.markdown(f'<table class="dtable"><tbody>{rows_h}</tbody></table>',unsafe_allow_html=True)
         else:
-            st.info("No repeating cards/items found. Try a product listing, news, or directory page.")
+            st.info("No structured items found on this page.")
 
-    # ── TAB 2: Images ────────────────────────────────────────────────────────
+    # ── Images ─────────────────────────────────────────────────────────────────
     with tabs[1]:
         imgs = st.session_state.images
         if imgs:
-            st.markdown(f"### 🖼️ {len(imgs)} Images Extracted")
-
-            # Filter controls
-            fc1, fc2 = st.columns([3,2])
-            with fc1:
-                img_filter = st.text_input("Filter URLs", placeholder="jpg, png, logo, product...", label_visibility="collapsed")
-            with fc2:
-                img_cols = st.select_slider("Columns", options=[2,3,4,5,6], value=4)
-
-            display = [i for i in imgs if img_filter.lower() in i["Image URL"].lower()] if img_filter else imgs
-            display = display[:max_img_preview]
-            st.caption(f"Showing {len(display)} of {len(imgs)}")
-
-            # Grid
-            for row_start in range(0, len(display), img_cols):
-                row_imgs = display[row_start:row_start+img_cols]
-                cols = st.columns(img_cols)
-                for ci, img_data in enumerate(row_imgs):
-                    with cols[ci]:
-                        url = img_data["Image URL"]
-                        alt = img_data.get("Alt Text","")
-                        fname = url.split("?")[0].split("/")[-1][:32]
-                        st.markdown(f"""
-<div style="margin-bottom:.8rem;">
-  <img src="{url}" style="width:100%;height:130px;object-fit:cover;border-radius:8px;border:1px solid rgba(255,255,255,0.06);display:block;" onerror="this.style.display='none'">
-  <div style="font-size:.65rem;color:#7c9cff;margin-top:3px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;" title="{alt}">{alt or fname}</div>
-</div>""", unsafe_allow_html=True)
-
-            # Full table
-            with st.expander(f"📋 All {len(imgs)} image URLs & details"):
-                img_df = pd.DataFrame(imgs)
-                st.dataframe(img_df, use_container_width=True, height=300,
-                             column_config={"Image URL": st.column_config.LinkColumn("Image URL")})
-
-            # Downloads
-            img_df_full = pd.DataFrame(imgs)
-            c1, c2 = st.columns(2)
-            c1.download_button("⬇️ CSV — All Images", img_df_full.to_csv(index=False).encode(), "w2s_images.csv", "text/csv")
-            c2.download_button("⬇️ JSON — All Images", img_df_full.to_json(orient="records",indent=2).encode(), "w2s_images.json", "application/json")
+            st.markdown(f"### {len(imgs)} Images")
+            fc1,fc2 = st.columns([3,2])
+            with fc1: ifilt = st.text_input("Filter","",placeholder="jpg, logo, product...",label_visibility="collapsed")
+            with fc2: ncols = st.select_slider("Cols",[2,3,4,5,6],value=4)
+            disp = [i for i in imgs if ifilt.lower() in i["Image URL"].lower()][:max_imgs] if ifilt else imgs[:max_imgs]
+            st.caption(f"{len(disp)} of {len(imgs)}")
+            for rs in range(0,len(disp),ncols):
+                row_imgs = disp[rs:rs+ncols]
+                c_ = st.columns(ncols)
+                for ci,img in enumerate(row_imgs):
+                    with c_[ci]:
+                        u = img["Image URL"]
+                        alt = img.get("Alt Text","")
+                        st.markdown(f'<div style="margin-bottom:.7rem;"><img src="{u}" style="width:100%;height:125px;object-fit:cover;border-radius:8px;border:1px solid rgba(255,255,255,0.06);" onerror="this.style.display=\'none\'"><div style="font-size:.63rem;color:#9aa4c7;margin-top:2px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">{alt or u.split("/")[-1][:30]}</div></div>',unsafe_allow_html=True)
+            with st.expander(f"📋 All {len(imgs)} URLs"):
+                idf = pd.DataFrame(imgs)
+                st.dataframe(idf,use_container_width=True,height=250,
+                             column_config={"Image URL":st.column_config.LinkColumn("Image URL")})
+            idf2 = pd.DataFrame(imgs)
+            c1_,c2_ = st.columns(2)
+            c1_.download_button("⬇️ CSV",idf2.to_csv(index=False).encode(),"w2s_images.csv","text/csv")
+            c2_.download_button("⬇️ JSON",idf2.to_json(orient="records",indent=2).encode(),"w2s_images.json","application/json")
         else:
-            st.info("No images found (or image extraction disabled).")
+            st.info("No images found.")
 
-    # ── TAB 3: Tables ────────────────────────────────────────────────────────
+    # ── Tables ─────────────────────────────────────────────────────────────────
     with tabs[2]:
-        tables = st.session_state.tables
-        if tables:
-            st.markdown(f"### 📊 {len(tables)} HTML Table(s)")
-            for i, t in enumerate(tables):
-                with st.expander(f"Table {i+1} — {len(t)} rows × {len(t.columns)} columns", expanded=(i==0)):
-                    st.dataframe(t, use_container_width=True, height=300)
-                    c1,c2,c3 = st.columns(3)
-                    c1.download_button("⬇️ CSV", t.to_csv(index=False).encode(), f"table_{i+1}.csv", "text/csv", key=f"tcsv{i}")
-                    c2.download_button("⬇️ JSON", t.to_json(orient="records",indent=2).encode(), f"table_{i+1}.json", "application/json", key=f"tjsn{i}")
-                    try:
-                        c3.download_button("⬇️ Excel", df_to_excel(t), f"table_{i+1}.xlsx",
-                                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key=f"txls{i}")
-                    except Exception:
-                        pass
+        tbls = st.session_state.tables
+        if tbls:
+            st.markdown(f"### {len(tbls)} Tables")
+            for i,t in enumerate(tbls):
+                with st.expander(f"Table {i+1} — {len(t)} rows × {len(t.columns)} cols",expanded=(i==0)):
+                    st.dataframe(t,use_container_width=True,height=280)
+                    tc1,tc2,tc3 = st.columns(3)
+                    tc1.download_button("⬇️ CSV",t.to_csv(index=False).encode(),f"w2s_table{i+1}.csv","text/csv",key=f"tc{i}")
+                    tc2.download_button("⬇️ JSON",t.to_json(orient="records",indent=2).encode(),f"w2s_table{i+1}.json","application/json",key=f"tj{i}")
+                    try: tc3.download_button("⬇️ Excel",to_excel(t),f"w2s_table{i+1}.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key=f"tx{i}")
+                    except Exception: pass
         else:
             st.info("No HTML tables found.")
 
-    # ── TAB 4: Links ─────────────────────────────────────────────────────────
+    # ── Links ──────────────────────────────────────────────────────────────────
     with tabs[3]:
         ldf = st.session_state.links_df
         if ldf is not None and not ldf.empty:
-            st.markdown(f"### 🔗 {len(ldf)} Links")
-            lsearch = st.text_input("Filter", placeholder="Search text or URL...", label_visibility="collapsed")
-            disp_ldf = ldf[ldf.apply(lambda r: r.astype(str).str.contains(lsearch, case=False).any(), axis=1)] if lsearch else ldf
-            st.dataframe(disp_ldf, use_container_width=True, height=420,
-                         column_config={"URL": st.column_config.LinkColumn("URL")})
-
-            c1,c2 = st.columns(2)
-            c1.download_button("⬇️ CSV", disp_ldf.to_csv(index=False).encode(), "w2s_links.csv", "text/csv")
-            try:
-                c2.download_button("⬇️ Excel", df_to_excel(disp_ldf), "w2s_links.xlsx",
-                                   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-            except Exception:
-                pass
-
-            with st.expander("🌍 Domain Breakdown"):
-                dc = disp_ldf["Domain"].value_counts().reset_index()
-                dc.columns = ["Domain","Links"]
-                st.dataframe(dc, use_container_width=True, height=200)
+            st.markdown(f"### {len(ldf)} Links")
+            ls = st.text_input("Filter","",placeholder="Search...",label_visibility="collapsed")
+            dl = ldf[ldf.apply(lambda r:r.astype(str).str.contains(ls,case=False).any(),axis=1)] if ls else ldf
+            st.dataframe(dl,use_container_width=True,height=400,
+                         column_config={"URL":st.column_config.LinkColumn("URL")})
+            lc1,lc2 = st.columns(2)
+            lc1.download_button("⬇️ CSV",dl.to_csv(index=False).encode(),"w2s_links.csv","text/csv")
+            try: lc2.download_button("⬇️ Excel",to_excel(dl),"w2s_links.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            except Exception: pass
+            with st.expander("🌍 Domains"):
+                dc = dl["Domain"].value_counts().reset_index(); dc.columns=["Domain","Links"]
+                st.dataframe(dc,use_container_width=True,height=180)
         else:
             st.info("No links found.")
 
-    # ── TAB 5: Headings ──────────────────────────────────────────────────────
+    # ── Headings ───────────────────────────────────────────────────────────────
     with tabs[4]:
         hdf = st.session_state.headings_df
         if hdf is not None and not hdf.empty:
-            st.markdown(f"### 📝 {len(hdf)} Headings")
-            level_colors = {"H1":"#7c9cff","H2":"#00e0ff","H3":"#e6ecff","H4":"#9aa4c7","H5":"#9aa4c7","H6":"#9aa4c7"}
-            for level in ["H1","H2","H3","H4","H5","H6"]:
-                subset = hdf[hdf["Level"]==level]
-                if subset.empty:
-                    continue
-                color = level_colors.get(level,"#9aa4c7")
-                st.markdown(f'<div class="cat-header"><span style="color:{color};font-family:Poppins,sans-serif;font-weight:700;font-size:1rem;">{level}</span><span class="cat-count">{len(subset)}</span></div>', unsafe_allow_html=True)
-                for _, r in subset.iterrows():
-                    size = {"H1":"1rem","H2":".9rem","H3":".85rem"}.get(level,".8rem")
-                    st.markdown(f'<div style="padding:.35rem .8rem;margin-bottom:.25rem;background:rgba(18,24,38,0.5);border-radius:6px;font-size:{size};">{r["Text"]}</div>', unsafe_allow_html=True)
-
-            st.download_button("⬇️ Download Headings CSV", hdf.to_csv(index=False).encode(), "w2s_headings.csv", "text/csv")
+            st.markdown(f"### {len(hdf)} Headings")
+            lcolors={"H1":"#7c9cff","H2":"#00e0ff","H3":"#e6ecff","H4":"#9aa4c7","H5":"#9aa4c7","H6":"#9aa4c7"}
+            for lv in ["H1","H2","H3","H4","H5","H6"]:
+                sub = hdf[hdf["Level"]==lv]
+                if sub.empty: continue
+                st.markdown(f'<div class="cheader"><span style="color:{lcolors.get(lv,"#9aa4c7")};font-family:Poppins,sans-serif;font-weight:700;">{lv}</span><span class="ccount">{len(sub)}</span></div>',unsafe_allow_html=True)
+                for _,r in sub.iterrows():
+                    sz={"H1":"1rem","H2":".9rem","H3":".84rem"}.get(lv,".78rem")
+                    st.markdown(f'<div style="padding:.3rem .8rem;margin-bottom:.2rem;background:rgba(18,24,38,0.5);border-radius:6px;font-size:{sz};">{r["Text"]}</div>',unsafe_allow_html=True)
+            st.download_button("⬇️ CSV",hdf.to_csv(index=False).encode(),"w2s_headings.csv","text/csv")
         else:
             st.info("No headings found.")
 
-    # ── TAB 6: Meta ──────────────────────────────────────────────────────────
+    # ── Meta ───────────────────────────────────────────────────────────────────
     with tabs[5]:
         meta = st.session_state.meta
         if meta:
-            st.markdown("### 🏷️ Page Metadata")
-            rows_html = "".join(f"<tr><td>{k}</td><td>{str(v)[:400]}</td></tr>" for k,v in meta.items() if v)
-            st.markdown(f'<table class="detail-table"><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>{rows_html}</tbody></table>', unsafe_allow_html=True)
-            meta_df = pd.DataFrame(list(meta.items()), columns=["Field","Value"])
-            st.download_button("⬇️ Download Meta CSV", meta_df.to_csv(index=False).encode(), "w2s_meta.csv", "text/csv")
+            st.markdown("### Page Metadata")
+            rows_h="".join(f"<tr><td>{k}</td><td>{str(v)[:350]}</td></tr>" for k,v in meta.items() if v)
+            st.markdown(f'<table class="dtable"><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>{rows_h}</tbody></table>',unsafe_allow_html=True)
+            mdf=pd.DataFrame(list(meta.items()),columns=["Field","Value"])
+            st.download_button("⬇️ CSV",mdf.to_csv(index=False).encode(),"w2s_meta.csv","text/csv")
         else:
             st.info("No metadata found.")
 
-    # ── TAB 7: Export All ────────────────────────────────────────────────────
+    # ── Export All ─────────────────────────────────────────────────────────────
     with tabs[6]:
-        st.markdown("### 📥 Export All Categories")
+        st.markdown("### Export Everything")
+        def exp_block(label, df_e, pfx):
+            if df_e is None or df_e.empty: return
+            st.markdown(f"**{label}** — {len(df_e):,} rows")
+            ec1,ec2,ec3=st.columns(3)
+            ec1.download_button("⬇️ CSV",df_e.to_csv(index=False).encode(),f"w2s_{pfx}.csv","text/csv",key=f"ec{pfx}")
+            ec2.download_button("⬇️ JSON",df_e.to_json(orient="records",indent=2).encode(),f"w2s_{pfx}.json","application/json",key=f"ej{pfx}")
+            try: ec3.download_button("⬇️ Excel",to_excel(df_e),f"w2s_{pfx}.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key=f"ex{pfx}")
+            except Exception: pass
+            st.markdown('<hr class="divider">',unsafe_allow_html=True)
 
-        def export_block(label, df_exp, prefix):
-            if df_exp is None or df_exp.empty:
-                return
-            st.markdown(f"**{label}** — {len(df_exp):,} rows · {len(df_exp.columns)} columns")
-            c1,c2,c3 = st.columns(3)
-            c1.download_button("⬇️ CSV", df_exp.to_csv(index=False).encode(), f"w2s_{prefix}.csv", "text/csv", key=f"xc_{prefix}")
-            c2.download_button("⬇️ JSON", df_exp.to_json(orient="records",indent=2).encode(), f"w2s_{prefix}.json", "application/json", key=f"xj_{prefix}")
-            try:
-                c3.download_button("⬇️ Excel", df_to_excel(df_exp), f"w2s_{prefix}.xlsx",
-                                   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key=f"xx_{prefix}")
-            except Exception as e:
-                c3.caption(f"Excel n/a: {e}")
-            st.markdown('<hr class="aura-divider">', unsafe_allow_html=True)
-
-        export_block("🃏 Items / Cards", st.session_state.items_df, "items")
+        exp_block("🃏 Items", st.session_state.items_df, "items")
         if st.session_state.images:
-            export_block("🖼️ Images", pd.DataFrame(st.session_state.images), "images")
-        if st.session_state.links_df is not None:
-            export_block("🔗 Links", st.session_state.links_df, "links")
-        if st.session_state.headings_df is not None:
-            export_block("📝 Headings", st.session_state.headings_df, "headings")
-        for i, t in enumerate(st.session_state.tables or []):
-            export_block(f"📊 Table {i+1}", t, f"table_{i+1}")
+            exp_block("🖼️ Images", pd.DataFrame(st.session_state.images), "images")
+        exp_block("🔗 Links", st.session_state.links_df, "links")
+        exp_block("📝 Headings", st.session_state.headings_df, "headings")
+        for i,t in enumerate(st.session_state.tables or []):
+            exp_block(f"📊 Table {i+1}", t, f"table{i+1}")
         if st.session_state.meta:
-            export_block("🏷️ Meta", pd.DataFrame(list(st.session_state.meta.items()), columns=["Field","Value"]), "meta")
+            exp_block("🏷️ Meta", pd.DataFrame(list(st.session_state.meta.items()),columns=["Field","Value"]), "meta")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # EMPTY STATE
 # ─────────────────────────────────────────────────────────────────────────────
-elif not extract_btn:
-    st.markdown("""
-<div class="glass-card" style="text-align:center;padding:2.5rem 2rem;margin-bottom:1.5rem;">
-  <div style="font-size:3rem;margin-bottom:.8rem;">📊</div>
-  <div style="font-family:Poppins,sans-serif;font-size:1.2rem;font-weight:700;margin-bottom:.4rem;">
-    Paste a URL. Get a spreadsheet.
-  </div>
-  <div style="color:#9aa4c7;font-size:.88rem;">
-    Extracts images, products, tables, links, headings & metadata — all downloadable.
-  </div>
-</div>
-""", unsafe_allow_html=True)
-
-    cols = st.columns(4)
+elif not go:
+    c1,c2,c3,c4 = st.columns(4)
     tiles = [
-        ("🖼️","Images","Every image URL with alt text, width, height — filterable gallery + CSV/JSON export."),
-        ("🃏","Products & Cards","Title · Price · Rating · Description · Image · URL · Brand · SKU · Availability — card + table + inspector views."),
-        ("📊","HTML Tables","All <table> elements converted to clean DataFrames with individual downloads."),
-        ("🔗","Links & Meta","All hyperlinks with domain breakdown, plus full page metadata and headings tree."),
+        ("🖼️","Images","Every image URL, alt text, dimensions — gallery + CSV"),
+        ("🃏","Products","Title · Price · Rating · Image · Brand · SKU · URL"),
+        ("📊","Tables","All HTML tables → clean DataFrames"),
+        ("🔗","Links & Meta","All links, headings, page metadata"),
     ]
-    for col, (icon, title, desc) in zip(cols, tiles):
+    for col,(icon,title,desc) in zip([c1,c2,c3,c4],tiles):
         with col:
-            st.markdown(f'<div class="glass-card" style="text-align:center;height:100%;"><div style="font-size:2.2rem;margin-bottom:.5rem;">{icon}</div><div style="font-family:Poppins,sans-serif;font-weight:700;margin-bottom:.4rem;">{title}</div><div style="color:#9aa4c7;font-size:.8rem;line-height:1.5;">{desc}</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="glass" style="text-align:center;"><div style="font-size:2rem;">{icon}</div><div style="font-family:Poppins,sans-serif;font-weight:700;margin:.4rem 0 .3rem;">{title}</div><div style="color:#9aa4c7;font-size:.78rem;">{desc}</div></div>',unsafe_allow_html=True)
 
-    st.markdown('<hr class="aura-divider">', unsafe_allow_html=True)
-    st.markdown("#### 💡 Try These URLs")
-
-    example_urls = [
-        ("🛒 Products", "https://books.toscrape.com/", "Open book store — great for product cards"),
-        ("📰 News", "https://news.ycombinator.com/", "Hacker News — links, titles, scores"),
-        ("🌍 Wikipedia", "https://en.wikipedia.org/wiki/List_of_largest_companies_by_revenue", "Tables with rich data"),
-        ("📱 Tech Prices", "https://www.91mobiles.com/mobile-phones-under-20000", "Indian phone listings"),
-        ("💼 Jobs", "https://jobs.github.com/", "Dev job listings"),
-        ("🏠 Real Estate", "https://www.magicbricks.com/property-for-sale/residential-real-estate?proptype=Multistorey-Apartment&cityName=Noida", "Property cards"),
+    st.markdown('<hr class="divider">', unsafe_allow_html=True)
+    st.markdown("#### 💡 Try These")
+    ex = [
+        ("📚","books.toscrape.com","https://books.toscrape.com/"),
+        ("💬","quotes.toscrape.com","https://quotes.toscrape.com/"),
+        ("📰","HackerNews","https://news.ycombinator.com/"),
+        ("🌍","Wikipedia tables","https://en.wikipedia.org/wiki/List_of_countries_by_GDP_(nominal)"),
+        ("📱","91mobiles*","https://www.91mobiles.com/mobile-phones-under-20000"),
+        ("🛒","Flipkart*","https://www.flipkart.com/mobiles"),
     ]
-
-    ec1, ec2, ec3 = st.columns(3)
-    for i, (icon, url, desc) in enumerate(example_urls):
-        col = [ec1, ec2, ec3][i % 3]
-        with col:
-            st.markdown(f"""
-<div class="glass-card" style="padding:1rem;">
-  <div style="font-size:.9rem;font-weight:600;margin-bottom:.3rem;">{icon} {desc}</div>
-  <div style="font-size:.72rem;color:#7c9cff;word-break:break-all;">{url}</div>
-</div>""", unsafe_allow_html=True)
-
-    st.markdown("""
-<div class="glass-card" style="border-left:3px solid #febc2e;padding:1rem 1.4rem;margin-top:.5rem;">
-  <div style="font-weight:600;margin-bottom:.3rem;">⚠️ Sites that block scrapers (won't work)</div>
-  <div style="color:#9aa4c7;font-size:.82rem;">
-    <b>Amazon</b> · <b>LinkedIn</b> · <b>Instagram</b> · <b>Facebook</b> · <b>Twitter/X</b> — these use advanced bot detection (Cloudflare, CAPTCHA, JavaScript challenges).
-    For Amazon, try <a href="https://www.91mobiles.com" target="_blank" style="color:#7c9cff;">91mobiles.com</a> or 
-    <a href="https://www.smartprix.com" target="_blank" style="color:#7c9cff;">smartprix.com</a> instead.
-  </div>
-</div>
-""", unsafe_allow_html=True)
+    ec1,ec2,ec3 = st.columns(3)
+    for i,(icon,name,url_) in enumerate(ex):
+        with [ec1,ec2,ec3][i%3]:
+            note = " <span style='font-size:.65rem;color:#febc2e;'>*needs ScraperAPI key</span>" if "*" in name else ""
+            name_clean = name.replace("*","")
+            st.markdown(f'<div class="glass" style="padding:.8rem 1rem;"><b>{icon} {name_clean}</b>{note}<br><span style="font-size:.72rem;color:#9aa4c7;">{url_}</span></div>',unsafe_allow_html=True)
