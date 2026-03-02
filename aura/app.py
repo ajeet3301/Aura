@@ -19,58 +19,356 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── CSS ────────────────────────────────────────────────────────────────────────
+# ── CSS + Visual Effects ────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&family=Inter:wght@300;400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@600;700;800&family=DM+Mono:wght@300;400;500&display=swap');
 
-html,body,[class*="css"]{font-family:'Inter',sans-serif;background:#0b0f19;color:#e6ecff;}
+/* ── TOKENS ── */
+:root{
+  --bg:#06040f; --bg2:#0d0818; --bg3:#110d1e;
+  --v:#8b5cf6; --vl:#a78bfa; --vxl:#c4b5fd;
+  --pk:#ec4899; --pkl:#f472b6;
+  --cy:#22d3ee; --wh:#f0ebff; --mu:#6d5f8a;
+  --br:rgba(139,92,246,0.18); --brb:rgba(139,92,246,0.45);
+  --gv:rgba(139,92,246,0.35); --gpk:rgba(236,72,153,0.3);
+}
+
+/* ── BASE ── */
+html,body,[class*="css"]{
+  font-family:'DM Mono',monospace !important;
+  background:var(--bg) !important; color:var(--wh) !important;
+}
 #MainMenu,footer,header{visibility:hidden;}
-.block-container{padding-top:1.5rem;max-width:1280px;}
-h1,h2,h3{font-family:'Poppins',sans-serif !important;}
+.block-container{padding-top:.5rem !important; max-width:1280px;}
+h1,h2,h3{font-family:'Syne',sans-serif !important;}
 
-.logo{font-family:'Poppins',sans-serif;font-size:2.4rem;font-weight:800;
-  background:linear-gradient(135deg,#7c9cff,#00e0ff);
-  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;letter-spacing:2px;}
+/* ── CRT SCANLINES — fixed overlay ── */
+body::before{
+  content:''; position:fixed; inset:0; z-index:9990; pointer-events:none;
+  background:repeating-linear-gradient(
+    0deg, transparent, transparent 3px,
+    rgba(0,0,0,0.07) 3px, rgba(0,0,0,0.07) 4px
+  );
+  animation:scanroll 14s linear infinite;
+}
+@keyframes scanroll{to{background-position:0 100vh;}}
 
-.divider{border:none;border-top:1px solid rgba(255,255,255,0.06);margin:1rem 0;}
+/* ── VIGNETTE — fixed overlay ── */
+body::after{
+  content:''; position:fixed; inset:0; z-index:9989; pointer-events:none;
+  background:radial-gradient(ellipse 82% 82% at 50% 50%,
+    transparent 52%, rgba(6,4,15,0.86) 100%);
+}
 
-.glass{background:rgba(18,24,38,0.75);border:1px solid rgba(255,255,255,0.08);
-  border-radius:14px;padding:1.4rem;margin-bottom:.8rem;}
+/* ── PARTICLE CANVAS ── */
+#w2s-canvas{
+  position:fixed; inset:0; z-index:0; pointer-events:none;
+}
 
-.pcard{background:rgba(18,24,38,0.85);border:1px solid rgba(255,255,255,0.08);
-  border-radius:16px;overflow:hidden;margin-bottom:.8rem;}
-.pbody{padding:.9rem;}
-.ptitle{font-family:'Poppins',sans-serif;font-weight:600;font-size:.9rem;margin-bottom:.35rem;color:#e6ecff;}
-.pprice{color:#28c840;font-weight:700;font-size:1rem;margin-bottom:.25rem;}
-.prating{color:#febc2e;font-size:.8rem;margin-bottom:.25rem;}
-.pdesc{color:#9aa4c7;font-size:.76rem;line-height:1.5;margin-bottom:.35rem;}
+/* ── SIDEBAR ── */
+section[data-testid="stSidebar"]{
+  background:rgba(8,5,18,0.96) !important;
+  border-right:1px solid var(--br) !important;
+  backdrop-filter:blur(16px);
+}
+section[data-testid="stSidebar"] *{color:var(--wh) !important;}
 
-.pill{display:inline-block;padding:2px 8px;background:rgba(0,224,255,0.08);
-  border:1px solid rgba(0,224,255,0.2);border-radius:20px;font-size:.68rem;color:#00e0ff;margin:2px;}
+/* ── NAV BAR (injected HTML element) ── */
+.w2s-nav{
+  position:sticky; top:0; z-index:9980;
+  display:flex; align-items:center; justify-content:space-between;
+  padding:0 24px; height:56px; margin-bottom:1.2rem;
+  background:rgba(6,4,15,0.88); backdrop-filter:blur(20px);
+  border-bottom:1px solid var(--br);
+}
+.w2s-nav-logo{
+  font-family:'Space Mono',monospace; font-weight:700; font-size:.95rem;
+  color:var(--vxl); text-shadow:0 0 22px var(--gv); letter-spacing:.5px;
+}
+.w2s-nav-logo .sl{color:var(--pk);}
+.w2s-nav-links{display:flex; gap:28px; list-style:none; margin:0; padding:0;}
+.w2s-nav-links a{
+  font-family:'DM Mono',monospace; font-size:.6rem; letter-spacing:2.5px;
+  text-transform:uppercase; color:var(--mu); text-decoration:none;
+  position:relative; padding-bottom:2px; transition:color .2s;
+}
+.w2s-nav-links a::after{
+  content:''; position:absolute; bottom:-1px; left:0; right:0; height:1px;
+  background:linear-gradient(90deg,var(--v),var(--pk));
+  transform:scaleX(0); transform-origin:left; transition:transform .3s;
+}
+.w2s-nav-links a:hover{color:var(--vxl);}
+.w2s-nav-links a:hover::after{transform:scaleX(1);}
+.w2s-status{
+  font-family:'DM Mono',monospace; font-size:.58rem; letter-spacing:2px;
+  color:var(--mu); display:flex; align-items:center; gap:7px;
+}
+.w2s-sdot{
+  width:7px; height:7px; border-radius:50%;
+  background:var(--v); display:inline-block;
+  box-shadow:0 0 10px var(--v),0 0 20px var(--gv);
+  animation:sdot 2.5s ease-in-out infinite;
+}
+@keyframes sdot{
+  0%,100%{box-shadow:0 0 7px var(--v),0 0 16px var(--gv);}
+  50%{box-shadow:0 0 18px var(--vl),0 0 32px var(--gv); opacity:.6;}
+}
 
-.dtable{width:100%;border-collapse:collapse;font-size:.83rem;}
-.dtable th{background:rgba(124,156,255,0.08);color:#7c9cff;padding:8px 12px;text-align:left;
-  border-bottom:1px solid rgba(255,255,255,0.06);font-weight:500;}
-.dtable td{padding:7px 12px;border-bottom:1px solid rgba(255,255,255,0.04);color:#9aa4c7;vertical-align:top;}
-.dtable tr:hover td{background:rgba(124,156,255,0.04);color:#e6ecff;}
-.dtable td:first-child{font-weight:500;color:#e6ecff;width:28%;}
+/* ── LOGO / HERO ── */
+.logo{
+  font-family:'Space Mono',monospace !important; font-size:2rem; font-weight:700;
+  background:linear-gradient(135deg,var(--vxl),var(--pkl));
+  -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+  background-clip:text; letter-spacing:1px;
+  text-shadow:none;
+}
 
-.sbox{background:rgba(18,24,38,0.8);border:1px solid rgba(255,255,255,0.08);
-  border-radius:12px;padding:1rem;text-align:center;}
-.snum{font-family:'Poppins',sans-serif;font-size:1.8rem;font-weight:700;color:#7c9cff;}
-.slbl{font-size:.72rem;color:#9aa4c7;margin-top:2px;}
+/* GLITCH on logo */
+.logo-wrap{position:relative; display:inline-block;}
+.logo-wrap::before,.logo-wrap::after{
+  content:attr(data-t); position:absolute; top:0; left:0;
+  font-family:'Space Mono',monospace; font-size:2rem; font-weight:700;
+  letter-spacing:1px; white-space:nowrap;
+  background:none; -webkit-text-fill-color:unset;
+}
+.logo-wrap::before{color:var(--pk); animation:ga 6s infinite 2s; opacity:.65;}
+.logo-wrap::after {color:var(--cy); animation:gb 6s infinite 2.05s; opacity:.45;}
+@keyframes ga{
+  0%,88%,100%{clip-path:inset(100% 0 0 0);transform:translate(0);}
+  89%{clip-path:inset(20% 0 60% 0);transform:translate(-4px,2px);}
+  91%{clip-path:inset(65% 0 15% 0);transform:translate(4px,-2px);}
+  93%{clip-path:inset(35% 0 45% 0);transform:translate(-3px,1px);}
+  95%{clip-path:inset(75% 0 8% 0);transform:translate(3px,-1px);}
+}
+@keyframes gb{
+  0%,88%,100%{clip-path:inset(100% 0 0 0);transform:translate(0);}
+  89%{clip-path:inset(55% 0 25% 0);transform:translate(3px,-2px);}
+  91%{clip-path:inset(10% 0 78% 0);transform:translate(-4px,1px);}
+  93%{clip-path:inset(45% 0 35% 0);transform:translate(2px,-1px);}
+  95%{clip-path:inset(5% 0 85% 0);transform:translate(-3px,2px);}
+}
 
-.cheader{display:flex;align-items:center;gap:10px;padding:.6rem 1rem;
-  background:rgba(18,24,38,0.6);border:1px solid rgba(255,255,255,0.07);
-  border-radius:10px;margin-bottom:.7rem;}
-.ccount{font-size:.76rem;color:#9aa4c7;margin-left:auto;}
+/* ── DIVIDER ── */
+.divider{border:none;border-top:1px solid var(--br);margin:1rem 0;}
 
-.key-banner{background:rgba(124,156,255,0.07);border:1px solid rgba(124,156,255,0.2);
-  border-radius:12px;padding:1rem 1.2rem;margin-bottom:1rem;}
+/* ── GLASS CARDS ── */
+.glass{
+  background:rgba(13,8,24,0.82); border:1px solid var(--br);
+  border-radius:10px; padding:1.2rem; margin-bottom:.8rem;
+}
 
-section[data-testid="stSidebar"]{background:#121826;border-right:1px solid rgba(255,255,255,0.06);}
+/* ── PRODUCT CARDS ── */
+.pcard{
+  background:rgba(13,8,24,0.9); border:1px solid var(--br);
+  border-radius:10px; overflow:hidden; margin-bottom:.8rem;
+  transition:border-color .25s, box-shadow .25s;
+}
+.pcard:hover{border-color:var(--brb); box-shadow:0 0 20px var(--gv);}
+.pbody{padding:.85rem;}
+.ptitle{font-family:'Syne',sans-serif;font-weight:700;font-size:.88rem;margin-bottom:.3rem;color:var(--wh);}
+.pprice{color:#28c840;font-weight:700;font-size:.95rem;margin-bottom:.22rem;}
+.prating{color:#febc2e;font-size:.78rem;margin-bottom:.22rem;}
+.pdesc{color:var(--mu);font-size:.73rem;line-height:1.55;margin-bottom:.3rem;}
+
+/* ── PILLS ── */
+.pill{
+  display:inline-block; padding:2px 8px;
+  background:rgba(139,92,246,0.1); border:1px solid var(--br);
+  border-radius:20px; font-size:.64rem; color:var(--vxl); margin:2px;
+}
+
+/* ── DETAIL TABLE ── */
+.dtable{width:100%;border-collapse:collapse;font-size:.8rem;}
+.dtable th{
+  background:rgba(139,92,246,0.08); color:var(--vxl);
+  padding:8px 12px; text-align:left;
+  border-bottom:1px solid var(--br); font-weight:500;
+}
+.dtable td{
+  padding:7px 12px; border-bottom:1px solid rgba(139,92,246,0.07);
+  color:var(--mu); vertical-align:top;
+}
+.dtable tr:hover td{background:rgba(139,92,246,0.05); color:var(--wh);}
+.dtable td:first-child{font-weight:600; color:var(--wh); width:28%;}
+
+/* ── STAT BOXES ── */
+.sbox{
+  background:rgba(13,8,24,0.85); border:1px solid var(--br);
+  border-radius:10px; padding:1rem; text-align:center;
+  transition:border-color .25s;
+}
+.sbox:hover{border-color:var(--brb);}
+.snum{
+  font-family:'Syne',sans-serif; font-size:1.8rem; font-weight:800;
+  background:linear-gradient(135deg,var(--vxl),var(--pkl));
+  -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+  background-clip:text;
+}
+.slbl{font-size:.68rem; color:var(--mu); margin-top:2px; letter-spacing:1.5px; text-transform:uppercase;}
+
+/* ── HEADING LEVEL HEADERS ── */
+.cheader{
+  display:flex; align-items:center; gap:10px; padding:.55rem 1rem;
+  background:rgba(13,8,24,0.7); border:1px solid var(--br);
+  border-radius:8px; margin-bottom:.6rem;
+}
+.ccount{font-size:.7rem; color:var(--mu); margin-left:auto;}
+
+/* ── KEY BANNER ── */
+.key-banner{
+  background:rgba(139,92,246,0.07); border:1px solid rgba(139,92,246,0.25);
+  border-radius:10px; padding:.9rem 1.1rem; margin-bottom:1rem;
+}
+
+/* ── AI BANNER ── */
+.ai-banner{
+  background:rgba(13,8,24,0.85); border:1px solid var(--brb);
+  border-left:3px solid var(--v); border-radius:10px; padding:.9rem 1.1rem;
+  margin-bottom:.8rem;
+}
+
+/* ── STRATEGY BADGE ── */
+.strat-badge{
+  display:inline-block; font-family:'DM Mono',monospace; font-size:.62rem;
+  padding:3px 10px; border-radius:20px; letter-spacing:1.5px;
+  border:1px solid; margin-bottom:.6rem;
+}
+
+/* ── STREAMLIT OVERRIDES ── */
+.stButton > button{
+  font-family:'DM Mono',monospace !important; letter-spacing:2px;
+  text-transform:uppercase; font-size:.7rem !important;
+  background:linear-gradient(135deg,var(--v),var(--pk)) !important;
+  color:#fff !important; border:none !important; border-radius:4px !important;
+  transition:all .25s !important;
+}
+.stButton > button:hover{
+  filter:brightness(1.15) !important;
+  box-shadow:0 0 24px var(--gv) !important;
+}
+.stTextInput > div > div > input{
+  background:rgba(13,8,24,0.95) !important; border:1px solid var(--brb) !important;
+  color:var(--wh) !important; font-family:'DM Mono',monospace !important;
+  border-radius:4px !important;
+}
+.stTextInput > div > div > input:focus{border-color:var(--v) !important; box-shadow:0 0 12px var(--gv) !important;}
+.stSelectbox > div,[data-baseweb="select"]{background:rgba(13,8,24,0.95) !important;}
+.stTabs [data-baseweb="tab-list"]{
+  background:rgba(13,8,24,0.8) !important; border-bottom:1px solid var(--br) !important;
+  gap:2px;
+}
+.stTabs [data-baseweb="tab"]{
+  font-family:'DM Mono',monospace !important; font-size:.68rem !important;
+  letter-spacing:1.5px; color:var(--mu) !important; background:transparent !important;
+  border-radius:0 !important; border-bottom:2px solid transparent !important;
+  transition:all .2s;
+}
+.stTabs [aria-selected="true"]{
+  color:var(--vxl) !important; border-bottom-color:var(--v) !important;
+}
+.stToggle label span{font-family:'DM Mono',monospace !important; font-size:.72rem !important;}
+.stSlider .st-bd{background:var(--v) !important;}
+div[data-testid="stStatusWidget"]{display:none;}
+.stDataFrame{border:1px solid var(--br) !important; border-radius:8px !important;}
+.stExpander{border:1px solid var(--br) !important; border-radius:8px !important; background:rgba(13,8,24,0.7) !important;}
+.stAlert{border-radius:8px !important;}
 </style>
+""", unsafe_allow_html=True)
+
+# ── Particle canvas + effects injected once ────────────────────────────────────
+st.markdown("""
+<canvas id="w2s-canvas"></canvas>
+
+<div class="w2s-nav">
+  <div class="w2s-nav-logo">web2sheet<span class="sl">/</span></div>
+  <ul class="w2s-nav-links">
+    <li><a href="#extract">Extract</a></li>
+    <li><a href="#images">Images</a></li>
+    <li><a href="#tables">Tables</a></li>
+    <li><a href="#export">Export</a></li>
+  </ul>
+  <div class="w2s-status">
+    <span class="w2s-sdot"></span>LIVE · ALL SYSTEMS
+  </div>
+</div>
+
+<script>
+(function(){
+  if(document.getElementById('w2s-init')) return;
+  var init = document.createElement('span');
+  init.id = 'w2s-init';
+  document.body.appendChild(init);
+
+  var cvs = document.getElementById('w2s-canvas');
+  if(!cvs) return;
+  var ctx = cvs.getContext('2d');
+  var W, H, pts=[], mx=-999, my=-999;
+
+  function resize(){ W=cvs.width=window.innerWidth; H=cvs.height=window.innerHeight; }
+  resize();
+  window.addEventListener('resize', resize);
+
+  var COLS=['#8b5cf6','#a78bfa','#ec4899','#f472b6','#c4b5fd','#7c3aed','#db2777'];
+
+  function P(){
+    this.reset = function(init){
+      this.x = Math.random()*W;
+      this.y = init ? Math.random()*H : H+8;
+      this.r = Math.random()*2.2+0.5;
+      this.vy = -(Math.random()*.45+.08);
+      this.vx = (Math.random()-.5)*.16;
+      this.a  = Math.random()*.5+.1;
+      this.ph = Math.random()*Math.PI*2;
+      this.c  = COLS[Math.floor(Math.random()*COLS.length)];
+      this.sq = Math.random()>.72;
+    };
+    this.reset(true);
+  }
+  P.prototype.tick = function(){
+    this.ph+=.02; this.y+=this.vy; this.x+=this.vx;
+    var dx=this.x-mx, dy=this.y-my, d2=dx*dx+dy*dy;
+    if(d2<10000){ var f=.5/Math.sqrt(d2+1); this.x+=dx*f; this.y+=dy*f; }
+    if(this.y<-8)this.reset(false);
+    if(this.x<0)this.x=W; if(this.x>W)this.x=0;
+  };
+  P.prototype.draw = function(){
+    var a=this.a*(.65+.35*Math.sin(this.ph));
+    ctx.save(); ctx.globalAlpha=a; ctx.fillStyle=this.c;
+    if(this.sq) ctx.fillRect(this.x-this.r,this.y-this.r,this.r*2,this.r*2);
+    else{ ctx.beginPath(); ctx.arc(this.x,this.y,this.r,0,Math.PI*2); ctx.fill(); }
+    ctx.restore();
+  };
+
+  for(var i=0;i<120;i++) pts.push(new P());
+
+  function drawWeb(){
+    var MD=80;
+    for(var i=0;i<pts.length;i++){
+      for(var j=i+1;j<pts.length;j++){
+        var dx=pts[i].x-pts[j].x, dy=pts[i].y-pts[j].y;
+        var d=Math.sqrt(dx*dx+dy*dy);
+        if(d<MD){
+          ctx.save(); ctx.globalAlpha=.055*(1-d/MD);
+          ctx.strokeStyle='#8b5cf6'; ctx.lineWidth=.4;
+          ctx.beginPath(); ctx.moveTo(pts[i].x,pts[i].y);
+          ctx.lineTo(pts[j].x,pts[j].y); ctx.stroke(); ctx.restore();
+        }
+      }
+    }
+  }
+
+  function frame(){
+    ctx.clearRect(0,0,W,H);
+    drawWeb();
+    pts.forEach(function(p){ p.tick(); p.draw(); });
+    requestAnimationFrame(frame);
+  }
+  frame();
+
+  document.addEventListener('mousemove', function(e){ mx=e.clientX; my=e.clientY; });
+})();
+</script>
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -407,8 +705,8 @@ for k,v in DEFAULTS.items():
 # SIDEBAR
 # ─────────────────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown('<div class="logo">web2sheet</div>', unsafe_allow_html=True)
-    st.caption("URL → Spreadsheet")
+    st.markdown('<div class="logo" style="font-size:1.4rem;margin-bottom:.2rem;">web2sheet<span style="color:#ec4899;">/</span></div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-family:\'DM Mono\',monospace;font-size:.6rem;color:#6d5f8a;letter-spacing:2px;text-transform:uppercase;margin-bottom:.4rem;">URL → Spreadsheet</div>', unsafe_allow_html=True)
     st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
     # ── ScraperAPI key input ─────────────────────────────────────────────────
@@ -454,9 +752,13 @@ with st.sidebar:
 # HERO
 # ─────────────────────────────────────────────────────────────────────────────
 st.markdown("""
-<div style="text-align:center;padding:1.6rem 1rem .6rem;">
-  <div class="logo">web2sheet</div>
-  <div style="color:#9aa4c7;font-size:.88rem;margin-top:.3rem;">Paste a URL. Get a spreadsheet.</div>
+<div style="text-align:center;padding:1.4rem 1rem .5rem;">
+  <div class="logo-wrap" data-t="web2sheet">
+    <div class="logo">web2sheet</div>
+  </div>
+  <div style="font-family:'DM Mono',monospace;color:#6d5f8a;font-size:.76rem;margin-top:.4rem;letter-spacing:3px;text-transform:uppercase;">
+    // paste a url · get a spreadsheet
+  </div>
 </div>""", unsafe_allow_html=True)
 
 # ── URL bar ───────────────────────────────────────────────────────────────────
@@ -471,11 +773,11 @@ with cb:
 if not scraper_key and not go:
     st.markdown("""
 <div class="key-banner">
-  <b>💡 For best results — add a free ScraperAPI key in the sidebar.</b><br>
-  <span style="color:#9aa4c7;font-size:.82rem;">
-  Without it, only open sites (Wikipedia, HackerNews, books.toscrape.com) work reliably.<br>
-  With it: 91mobiles, Flipkart, SmartPrix, news sites, and most others work too.<br>
-  <a href="https://scraperapi.com" target="_blank" style="color:#7c9cff;">Get free key at scraperapi.com →</a>
+  <b style="color:#c4b5fd;">💡 Add a free ScraperAPI key for best results.</b><br>
+  <span style="color:#6d5f8a;font-size:.76rem;">
+  Without it, only open sites work reliably.<br>
+  With it: 91mobiles, Flipkart, SmartPrix & most others work too.<br>
+  <a href="https://scraperapi.com" target="_blank" style="color:#a78bfa;">Get free key at scraperapi.com →</a>
   </span>
 </div>""", unsafe_allow_html=True)
 
@@ -609,22 +911,22 @@ if has_data:
         icon = icons.get(ai.get("page_type","other"),"🌐")
         cats_html = " ".join(f'<span class="pill">{c}</span>' for c in ai.get("categories",[])[:10])
         st.markdown(f"""
-<div class="glass" style="border-left:3px solid #7c9cff;padding:1rem 1.2rem;">
-  <span style="font-size:1.6rem;">{icon}</span>
-  <span style="font-family:Poppins,sans-serif;font-weight:700;margin-left:10px;color:#7c9cff;">
+<div class="ai-banner">
+  <span style="font-size:1.4rem;">{icon}</span>
+  <span style="font-family:'Syne',sans-serif;font-weight:700;margin-left:10px;color:#a78bfa;">
     {ai.get("page_type","").replace("-"," ").title()}
   </span>
-  <span style="color:#9aa4c7;font-size:.82rem;margin-left:10px;">{ai.get("summary","")}</span>
+  <span style="color:#6d5f8a;font-size:.78rem;margin-left:10px;">{ai.get("summary","")}</span>
   <div style="margin-top:.5rem;">{cats_html}</div>
 </div>""", unsafe_allow_html=True)
 
     # Strategy badge
     strat = st.session_state.strategy
-    strat_color = {"scraperapi":"#00e0ff","direct":"#28c840",
-                   "google_cache":"#febc2e","wayback":"#febc2e","ai_search":"#7c9cff"}
+    strat_color = {"scraperapi":"#22d3ee","direct":"#28c840",
+                   "google_cache":"#f472b6","wayback":"#f472b6","ai_search":"#a78bfa"}
     if strat:
-        sc = strat_color.get(strat,"#9aa4c7")
-        st.markdown(f'<span style="font-size:.75rem;padding:3px 10px;background:rgba(0,0,0,0.3);border:1px solid {sc};border-radius:20px;color:{sc};">Source: {strat.replace("_"," ").title()}</span>',
+        sc = strat_color.get(strat,"#6d5f8a")
+        st.markdown(f'<span class="strat-badge" style="border-color:{sc};color:{sc};">⬡ Source: {strat.replace("_"," ").upper()}</span>',
                     unsafe_allow_html=True)
 
     # Stats
@@ -784,7 +1086,7 @@ if has_data:
         hdf = st.session_state.headings_df
         if hdf is not None and not hdf.empty:
             st.markdown(f"### {len(hdf)} Headings")
-            lcolors={"H1":"#7c9cff","H2":"#00e0ff","H3":"#e6ecff","H4":"#9aa4c7","H5":"#9aa4c7","H6":"#9aa4c7"}
+            lcolors={"H1":"#c4b5fd","H2":"#a78bfa","H3":"#f472b6","H4":"#6d5f8a","H5":"#6d5f8a","H6":"#6d5f8a"}
             for lv in ["H1","H2","H3","H4","H5","H6"]:
                 sub = hdf[hdf["Level"]==lv]
                 if sub.empty: continue
@@ -859,6 +1161,33 @@ elif not go:
     ec1,ec2,ec3 = st.columns(3)
     for i,(icon,name,url_) in enumerate(ex):
         with [ec1,ec2,ec3][i%3]:
-            note = " <span style='font-size:.65rem;color:#febc2e;'>*needs ScraperAPI key</span>" if "*" in name else ""
+            note = " <span style='font-size:.62rem;color:#f472b6;letter-spacing:1px;'>*needs ScraperAPI</span>" if "*" in name else ""
             name_clean = name.replace("*","")
-            st.markdown(f'<div class="glass" style="padding:.8rem 1rem;"><b>{icon} {name_clean}</b>{note}<br><span style="font-size:.72rem;color:#9aa4c7;">{url_}</span></div>',unsafe_allow_html=True)
+            st.markdown(f'<div class="glass" style="padding:.75rem 1rem;border-left:2px solid rgba(139,92,246,0.4);"><b style="color:#c4b5fd;">{icon} {name_clean}</b>{note}<br><span style="font-size:.68rem;color:#6d5f8a;">{url_}</span></div>',unsafe_allow_html=True)
+
+# ── FOOTER ────────────────────────────────────────────────────────────────────
+st.markdown("""
+<hr class="divider" style="margin-top:2rem;">
+<div style="display:flex;align-items:center;justify-content:space-between;padding:.8rem 0 1.6rem;flex-wrap:wrap;gap:12px;">
+  <div style="font-family:'Space Mono',monospace;font-weight:700;font-size:.85rem;
+    background:linear-gradient(135deg,#c4b5fd,#f472b6);
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">
+    web2sheet<span style="-webkit-text-fill-color:#ec4899;">/</span>
+  </div>
+  <div style="display:flex;gap:24px;">
+    <a href="https://scraperapi.com" target="_blank"
+      style="font-family:'DM Mono',monospace;font-size:.58rem;letter-spacing:2px;
+             text-transform:uppercase;color:#6d5f8a;text-decoration:none;
+             transition:color .2s;">ScraperAPI</a>
+    <a href="https://docs.anthropic.com" target="_blank"
+      style="font-family:'DM Mono',monospace;font-size:.58rem;letter-spacing:2px;
+             text-transform:uppercase;color:#6d5f8a;text-decoration:none;">Anthropic</a>
+    <a href="https://streamlit.io" target="_blank"
+      style="font-family:'DM Mono',monospace;font-size:.58rem;letter-spacing:2px;
+             text-transform:uppercase;color:#6d5f8a;text-decoration:none;">Streamlit</a>
+  </div>
+  <div style="font-family:'DM Mono',monospace;font-size:.54rem;color:#6d5f8a;opacity:.5;letter-spacing:1px;">
+    © 2025 WEB2SHEET · PII DETECTION · RATE LIMITED
+  </div>
+</div>
+""", unsafe_allow_html=True)
